@@ -71,7 +71,8 @@ def main():
                   ).status_code == 400, "코드가 재사용됨"
 
     # 9. 계정이 있어도 관리 권한이 없으면 수집 관리는 막힌다
-    launcher.save_accounts([{"agent": "claude", "identity": "a@b.c", "home": "H"}])
+    fake_home = str((Path("data") / "_test_home").resolve())
+    launcher.save_accounts([{"agent": "claude", "identity": "a@b.c", "home": fake_home}])
     me = c.get("/api/me").json()
     assert me["linked"] and not me["is_manager"], me
     assert c.post("/api/collect", json={"channel_id": "1", "on": True}).status_code == 403
@@ -107,6 +108,8 @@ def main():
     assert c.get("/api/optout").json()["opted_out"] is True
     assert c.post("/api/optout", json={"out": False}).json()["opted_out"] is False
 
+    import shutil
+    shutil.rmtree("data/_test_home", ignore_errors=True)
     for f in ("data/_test_launcher.db", "data/_test_launcher.db-wal",
               "data/_test_launcher.db-shm", "data/_test_launcher_accounts.json"):
         if os.path.exists(f):

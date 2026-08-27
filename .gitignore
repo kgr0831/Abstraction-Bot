@@ -3,3 +3,8 @@ data/
 __pycache__/
 .venv/
 *.pyc
+
+# 에이전트 격리 홈이 실수로 프로젝트 루트에 생기는 것 방지
+.claude.json
+**/.claude.json
+H/
