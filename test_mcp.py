@@ -1,11 +1,14 @@
 """mcp_server.py 자체 점검 — KST 변환·대화록 서식·툴 출력."""
 
+import json
 import os
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
 os.environ["COLLECTOR_DB"] = "data/_test_mcp.db"
-for f in ("data/_test_mcp.db", "data/_test_mcp.db-wal", "data/_test_mcp.db-shm"):
+os.environ["COLLECTOR_ACCOUNTS"] = "data/_test_accounts.json"
+for f in ("data/_test_mcp.db", "data/_test_mcp.db-wal", "data/_test_mcp.db-shm",
+          "data/_test_accounts.json"):
     if os.path.exists(f):
         os.remove(f)
 
@@ -39,6 +42,20 @@ def msg(mid, content, dt, author="가람", thread=None, reply=None):
 
 def main():
     conn = db.connect()
+
+    # 게이트: 등록된 계정이 없으면 조회 자체가 막힌다
+    assert "등록된 CLI 계정이 없습니다" in m.list_channels()
+
+    # 계정만 있고 디스코드 연동이 없으면 여전히 막힌다
+    db.ACCOUNTS_PATH.write_text(
+        json.dumps([{"agent": "claude", "identity": "me@x.com", "home": "H"}]), "utf-8")
+    assert "연동되지 않았습니다" in m.list_channels()
+
+    # 페어링 코드를 소진하면 통과
+    code, _ = db.new_pair_code(conn, "d1", "가람")
+    assert db.redeem_pair_code(conn, code, "claude", "me@x.com") == ("d1", "가람")
+    assert db.redeem_pair_code(conn, code, "claude", "me@x.com") is None, "코드가 재사용됨"
+    assert "수집 중인 채널이 없습니다" in m.list_channels()
     db.add_channel(conn, "c1", "g1", "아이디어")
     # 8/27 06:11 UTC == 8/27 15:11 KST
     t = datetime(2026, 8, 27, 6, 11, tzinfo=UTC)
@@ -54,13 +71,25 @@ def main():
     # 스레드 메시지가 부모 채널 하루치에 같이 잡혀야 한다
     assert out.count("⟨") == 3, out
 
+    # 날짜 범위
+    t2 = datetime(2026, 8, 29, 6, 0, tzinfo=UTC)          # 8/29 KST
+    db.upsert_message(conn, msg("4", "이틀 뒤 메시지", t2))
+    assert m.get_conversation("아이디어", "2026-08-27").count("⟨") == 3
+    wide = m.get_conversation("아이디어", "2026-08-27", "2026-08-29")
+    assert wide.count("⟨") == 4, wide
+    assert "2026-08-27~2026-08-29" in wide
+    assert "없습니다" in m.get_conversation("아이디어", "2026-08-30", "2026-08-31")
+    assert "형식이 잘못" in m.get_conversation("아이디어", "8/27")
+    assert "앞섭니다" in m.get_conversation("아이디어", "2026-08-29", "2026-08-27")
+
     assert "아이디어" in m.list_channels()
     assert "⟨1⟩" in m.search_messages("ㄱㄴ")
     assert "없음" in m.search_messages("존재하지않는말")
     assert len(m.recent_days("c1", days=3).splitlines()) == 3
 
     conn.close()
-    for f in ("data/_test_mcp.db", "data/_test_mcp.db-wal", "data/_test_mcp.db-shm"):
+    for f in ("data/_test_mcp.db", "data/_test_mcp.db-wal", "data/_test_mcp.db-shm",
+              "data/_test_accounts.json"):
         if os.path.exists(f):
             os.remove(f)
     print("test_mcp: 통과")

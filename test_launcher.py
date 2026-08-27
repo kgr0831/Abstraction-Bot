@@ -34,12 +34,46 @@ def main():
         who = launcher.identity("claude", Path(tmp))
         assert who is None, f"격리 실패 — 빈 홈에서 계정이 보임: {who}"
 
-    # 5. 저장/불러오기 왕복
+    # 5. 리더보드 페이지와 API
+    assert "리더보드" in c.get("/leaderboard").text
+    lb = c.get("/api/leaderboard?days=7").json()
+    assert "rows" in lb and isinstance(lb["rows"], list)
+
+    # 6. 페어링 — 틀린 코드는 거부
+    r = c.post("/api/pair", json={"code": "ZZZZZZ", "agent": "claude", "identity": "a@b.c"})
+    assert r.status_code == 400 and not r.json()["ok"], r.text
+
+    # 7. 페어링 — 발급한 코드는 1회만 통한다
+    conn = launcher.db.connect()
+    try:
+        code, _ = launcher.db.new_pair_code(conn, "d9", "테스터")
+    finally:
+        conn.close()
+    r = c.post("/api/pair", json={"code": code, "agent": "claude", "identity": "a@b.c"})
+    assert r.json().get("ok") and r.json()["user_name"] == "테스터", r.text
+    assert c.post("/api/pair",
+                  json={"code": code, "agent": "claude", "identity": "a@b.c"}
+                  ).status_code == 400, "코드가 재사용됨"
+    conn = launcher.db.connect()
+    try:
+        launcher.db.unlink(conn, "d9")
+    finally:
+        conn.close()
+
+    # 8. 계정 없이 디스코드 연동 시도는 막힌다
+    r = c.post("/api/discord-link", json={"code": "ABC123", "home": "없는경로"})
+    assert r.status_code == 400 and "계정" in r.json()["error"], r.text
+
+    # 9. MCP 추가 입력 검증 (CLI 호출 전에 걸러야 한다)
+    r = c.post("/api/mcp/add", json={"home": "없는경로", "name": "x", "url": "https://a"})
+    assert r.status_code == 400, r.text
+
+    # 10. 저장/불러오기 왕복
     orig = launcher.load_accounts()
     try:
         launcher.save_accounts([{"agent": "claude", "identity": "a@b.c", "home": "X"}])
         assert c.get("/api/accounts").json()[0]["identity"] == "a@b.c"
-        # 6. 연결 해제는 AGENTS_DIR 밖 경로를 지우지 않는다
+        # 11. 연결 해제는 AGENTS_DIR 밖 경로를 지우지 않는다
         with tempfile.TemporaryDirectory() as outside:
             probe = Path(outside) / "keep.txt"
             probe.write_text("x", encoding="utf-8")

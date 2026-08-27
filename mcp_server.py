@@ -27,6 +27,26 @@ def _db():
         conn.close()
 
 
+def _gate():
+    """본인 CLI가 연동돼 있어야 조회를 허용한다. 통과면 None, 아니면 안내 문구."""
+    mine = {a.get("identity") for a in db.local_accounts()}
+    if not mine:
+        return (
+            "이 PC에 등록된 CLI 계정이 없습니다.\n"
+            "start.bat 을 실행하고 http://127.0.0.1:8787 에서 Claude 또는 Codex를 연결하세요."
+        )
+    with _db() as conn:
+        linked = db.linked_identities(conn)
+    if not (mine & linked):
+        return (
+            "등록된 CLI 계정이 디스코드에 연동되지 않았습니다.\n"
+            "디스코드에서 `/시작` 을 실행하고, 나온 코드를 http://127.0.0.1:8787 의 "
+            "'디스코드 연동' 칸에 입력하세요.\n"
+            f"(이 PC의 계정: {', '.join(sorted(x for x in mine if x))})"
+        )
+    return None
+
+
 def _kst(iso):
     """UTC ISO -> 'MM-DD HH:MM' KST."""
     return datetime.fromisoformat(iso).astimezone(db.KST).strftime("%m-%d %H:%M")
@@ -52,6 +72,8 @@ def _transcript(rows):
 @mcp.tool()
 def list_channels() -> str:
     """수집 중인 채널과 각 채널의 메시지 수, 마지막 수집 시각을 반환한다."""
+    if (blocked := _gate()):
+        return blocked
     with _db() as conn:
         rows = db.list_channels(conn)
     if not rows:
@@ -64,22 +86,32 @@ def list_channels() -> str:
 
 
 @mcp.tool()
-def get_conversation(channel: str, date: str) -> str:
-    """하루치 대화 원문을 시간순으로 반환한다.
+def get_conversation(channel: str, date: str, until: str = "") -> str:
+    """대화 원문을 시간순으로 반환한다. 하루치 또는 날짜 범위.
 
     Args:
         channel: 채널 이름(예: '아이디어') 또는 채널 ID
-        date: KST 기준 날짜, 'YYYY-MM-DD'
+        date: KST 시작 날짜, 'YYYY-MM-DD'
+        until: KST 끝 날짜(포함). 비우면 date 하루치.
+               주간 정리는 date='2026-08-20', until='2026-08-26' 처럼 부른다.
 
     각 줄 끝의 ⟨메시지ID⟩ 와 헤더의 링크 틀로 원문 링크를 만들 수 있다.
     """
+    for d in (date, until):
+        if d and not db.valid_date(d):
+            return f"날짜 형식이 잘못됐습니다: '{d}' (YYYY-MM-DD 여야 함)"
+    if until and until < date:
+        return f"끝 날짜({until})가 시작 날짜({date})보다 앞섭니다."
+    if (blocked := _gate()):
+        return blocked
     with _db() as conn:
-        rows = db.get_conversation(conn, channel, date)
+        rows = db.get_conversation(conn, channel, date, until or None)
+    span = f"{date}~{until}" if until else date
     if not rows:
-        return f"{date} {channel} 에 대화가 없습니다."
+        return f"{span} {channel} 에 대화가 없습니다."
     tmpl = LINK.format(guild=rows[0]["guild_id"], channel=rows[0]["channel_id"], msg="{메시지ID}")
     return (
-        f"# {channel} · {date} (KST) · {len(rows)}건\n원문 링크 틀: {tmpl}\n\n"
+        f"# {channel} · {span} (KST) · {len(rows)}건\n원문 링크 틀: {tmpl}\n\n"
         + _transcript(rows)
     )
 
@@ -97,6 +129,8 @@ def search_messages(
         until: KST 종료 날짜 'YYYY-MM-DD' (포함)
         limit: 최대 건수, 기본 200
     """
+    if (blocked := _gate()):
+        return blocked
     with _db() as conn:
         rows = db.search_messages(
             conn, query, channel or None, since or None, until or None, limit
@@ -112,6 +146,8 @@ def search_messages(
 @mcp.tool()
 def recent_days(channel: str = "", days: int = 7) -> str:
     """최근 며칠간 KST 날짜별 메시지 수. 어느 날짜를 정리할지 고를 때 먼저 부른다."""
+    if (blocked := _gate()):
+        return blocked
     with _db() as conn:
         rows = db.day_counts(conn, channel or None, days)
     return "\n".join(f"{d}  {n}건" for d, n in rows)

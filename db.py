@@ -6,6 +6,7 @@
 
 import json
 import os
+import secrets
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -42,6 +43,23 @@ CREATE TABLE IF NOT EXISTS optouts (
   user_id  TEXT PRIMARY KEY,
   opted_at TEXT NOT NULL
 );
+
+-- 디스코드 사용자 <-> 본인 CLI 계정 바인딩. 이게 없으면 조회를 거부한다.
+CREATE TABLE IF NOT EXISTS links (
+  user_id   TEXT PRIMARY KEY,
+  user_name TEXT NOT NULL,
+  agent     TEXT NOT NULL,
+  identity  TEXT NOT NULL,
+  linked_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_links_identity ON links(identity);
+
+CREATE TABLE IF NOT EXISTS pair_codes (
+  code       TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL,
+  user_name  TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
 """
 
 
@@ -65,6 +83,14 @@ def kst_day_range(date_str):
     return d.astimezone(timezone.utc).isoformat(), (d + timedelta(days=1)).astimezone(
         timezone.utc
     ).isoformat()
+
+
+def valid_date(s):
+    try:
+        datetime.strptime(s, "%Y-%m-%d")
+        return True
+    except (ValueError, TypeError):
+        return False
 
 
 # --- 화이트리스트 -----------------------------------------------------------
@@ -183,8 +209,10 @@ _VISIBLE = """
 """
 
 
-def get_conversation(conn, channel, date):
-    start, end = kst_day_range(date)
+def get_conversation(conn, channel, date, until=None):
+    """date 하루치. until 을 주면 date~until (양끝 포함) 범위."""
+    start = kst_day_range(date)[0]
+    end = kst_day_range(until or date)[1]
     return conn.execute(
         f"""SELECT m.id, m.guild_id, m.channel_id, m.channel_name, m.author_name,
                    m.content, m.created_at, m.reply_to_id, m.thread_id, m.attachments
@@ -248,3 +276,94 @@ def day_counts(conn, channel=None, days=7):
         ((today - timedelta(days=i)).isoformat(), counts.get((today - timedelta(days=i)).isoformat(), 0))
         for i in range(days)
     ]
+
+
+# --- CLI 연동 --------------------------------------------------------------
+
+PAIR_TTL_MIN = 10
+
+
+def new_pair_code(conn, user_id, user_name):
+    """페어링 코드 발급. 사용자당 하나만 살아 있게 한다."""
+    conn.execute("DELETE FROM pair_codes WHERE user_id=?", (str(user_id),))
+    code = secrets.token_hex(3).upper()
+    expires = (datetime.now(timezone.utc) + timedelta(minutes=PAIR_TTL_MIN)).isoformat()
+    conn.execute(
+        "INSERT INTO pair_codes VALUES (?,?,?,?)",
+        (code, str(user_id), user_name, expires),
+    )
+    return code, PAIR_TTL_MIN
+
+
+def redeem_pair_code(conn, code, agent, identity):
+    """코드를 소진하고 바인딩을 만든다. 성공하면 (user_id, user_name)."""
+    conn.execute("DELETE FROM pair_codes WHERE expires_at < ?", (now(),))
+    row = conn.execute(
+        "SELECT user_id, user_name FROM pair_codes WHERE code=?", (code.strip().upper(),)
+    ).fetchone()
+    if not row:
+        return None
+    conn.execute("DELETE FROM pair_codes WHERE code=?", (code.strip().upper(),))
+    conn.execute(
+        "INSERT OR REPLACE INTO links VALUES (?,?,?,?,?)",
+        (row["user_id"], row["user_name"], agent, identity, now()),
+    )
+    return row["user_id"], row["user_name"]
+
+
+def get_link(conn, user_id):
+    return conn.execute(
+        "SELECT * FROM links WHERE user_id=?", (str(user_id),)
+    ).fetchone()
+
+
+def unlink(conn, user_id):
+    return conn.execute("DELETE FROM links WHERE user_id=?", (str(user_id),)).rowcount > 0
+
+
+def linked_identities(conn):
+    """연동된 CLI 계정 식별자 집합. MCP 게이트가 이걸로 판정한다."""
+    return {r["identity"] for r in conn.execute("SELECT identity FROM links")}
+
+
+ACCOUNTS_PATH = Path(os.getenv("COLLECTOR_ACCOUNTS") or Path(__file__).parent / "data" / "accounts.json")
+
+
+def local_accounts():
+    """이 PC의 등록기에 등록된 CLI 계정들. 봇 DB가 아니라 로컬 파일이다."""
+    if not ACCOUNTS_PATH.exists():
+        return []
+    try:
+        return json.loads(ACCOUNTS_PATH.read_text("utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def leaderboard(conn, since=None, channel=None):
+    """발언자별 집계. SQL 날짜연산 대신 파이썬에서 KST로 접는다
+    (created_at 의 마이크로초까지 SQLite date() 가 안전하게 못 읽음)."""
+    sql = f"SELECT m.author_id, m.author_name, m.channel_name, m.created_at {_VISIBLE}"
+    params = []
+    if since:
+        sql += " AND m.created_at >= ?"
+        params.append(kst_day_range(since)[0])
+    if channel:
+        sql += " AND (m.channel_id=? OR m.channel_name=?)"
+        params += [str(channel), str(channel)]
+
+    agg = {}
+    for r in conn.execute(sql, params):
+        e = agg.setdefault(
+            r["author_id"],
+            {"author": r["author_name"], "messages": 0, "days": set(), "channels": set()},
+        )
+        e["author"] = r["author_name"]
+        e["messages"] += 1
+        e["days"].add(datetime.fromisoformat(r["created_at"]).astimezone(KST).date())
+        e["channels"].add(r["channel_name"])
+    out = [
+        {"author": v["author"], "messages": v["messages"],
+         "days": len(v["days"]), "channels": len(v["channels"])}
+        for v in agg.values()
+    ]
+    return sorted(out, key=lambda x: -x["messages"])
