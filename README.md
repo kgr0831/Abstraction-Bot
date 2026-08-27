@@ -12,18 +12,9 @@
 | 에이전트 스킬 2개 | 작성 완료 |
 | 계정 등록기 (`launcher.py`) | 코드 완료 · UI 확인 · 격리 검증됨 |
 | 실행 스크립트 (`start.bat`) | 봇 + 등록기를 한 창에서. 창 닫으면 같이 종료 |
-| **`MESSAGE CONTENT INTENT`** | **꺼져 있음 — 이거 하나 때문에 봇이 못 뜬다** |
+| `MESSAGE CONTENT INTENT` | **켜짐 · 접속 확인됨** |
 
 봇 계정: `Abstraction Bot#7657` · 이미 들어가 있는 서버: `AI Native 스터디`
-
-## ▶ 지금 해야 할 것 — 체크박스 하나
-
-https://discord.com/developers/applications/1528500011476713602/bot
-
-**Privileged Gateway Intents** 에서 **MESSAGE CONTENT INTENT** 를 켜고 저장한다.
-봇이 100서버 미만이면 심사 없이 토글만으로 끝난다.
-
-켜기 전에는 봇이 뜨지 않고 안내 메시지를 내고 종료한다.
 
 ## 설치 · 실행
 
@@ -42,6 +33,9 @@ Abstraction Bot#7657 접속. 서버 1개
 ```
 
 위처럼 뜨면 성공.
+
+> `MESSAGE CONTENT INTENT` 가 꺼지면 봇이 뜨지 않고 안내 메시지를 내고 종료한다.
+> 개발자 포털 > Bot > Privileged Gateway Intents 에서 켠다.
 
 ## 다른 서버에 초대하기
 

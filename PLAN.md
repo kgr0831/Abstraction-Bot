@@ -22,10 +22,11 @@
 | 3단계 디코 OAuth 신원 식별 | **보류** — OAuth 클라이언트 시크릿 미제공 |
 | 3단계 봇→런처 작업 전달 | **보류** — §9의 중앙 호스팅 결정에 걸림 |
 
-**막힌 것 하나:** 개발자 포털에서 `MESSAGE CONTENT INTENT` 가 꺼져 있어 봇이 뜨지 못한다
-(`PrivilegedIntentsRequired`). 포털 체크박스라 사람이 켜야 한다. 절차는 README 참고.
+`MESSAGE CONTENT INTENT` 켜짐 · 접속 확인됨. 1·2단계는 바로 쓸 수 있는 상태다.
 
-발견: 봇(`Abstraction Bot#7657`)은 이미 `AI Native 스터디` 서버에 들어가 있다.
+봇(`Abstraction Bot#7657`)은 `AI Native 스터디` 서버에 들어가 있다.
+
+**남은 것:** 디스코드에서 `/수집시작` → 요약 품질 확인 → 노션 DB 2개 생성.
 
 
 ## 1. 확정 사항
