@@ -1,0 +1,13 @@
+[project]
+name = "discord-collector"
+version = "0.1.0"
+description = "디스코드 대화 수집 봇 + MCP 서버"
+requires-python = ">=3.11"
+dependencies = [
+    "discord.py>=2.4",
+    "mcp>=1.2",
+    "python-dotenv>=1.0",
+]
+
+[tool.uv]
+package = false

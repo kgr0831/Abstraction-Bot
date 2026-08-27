@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "discord-collector": {
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "mcp_server.py"
+      ]
+    }
+  }
+}
