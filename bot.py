@@ -2,8 +2,13 @@
 
 하는 일은 하나뿐이다 — 화이트리스트 채널의 메시지를 SQLite에 넣는다.
 요약·클러스터링·아이디어 추출은 MCP 서버 너머의 에이전트가 한다.
+
+운영은 대부분 웹 콘솔(launcher.py)에서 한다. 여기 남은 슬래시 커맨드는
+디스코드 안에서 반드시 닿아야 하는 것들뿐이다 (진입점 · 현황 · 수집 거부).
+콘솔은 아래 브리지 함수로 봇 루프에 일을 시킨다.
 """
 
+import asyncio
 import logging
 import os
 from datetime import datetime, timedelta, timezone
@@ -17,6 +22,8 @@ import db
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("collector")
+
+LAUNCHER_URL = os.getenv("LAUNCHER_URL", "http://127.0.0.1:8787")
 
 NOTICE = (
     "**대화 수집이 시작되었습니다.**\n"
@@ -78,83 +85,142 @@ async def on_raw_message_delete(payload):
     db.mark_deleted(conn, payload.message_id)
 
 
-# --- 운영 커맨드 ------------------------------------------------------------
-
-manager = app_commands.checks.has_permissions(manage_guild=True)
-
-
-@client.tree.command(name="수집시작", description="이 채널의 대화 수집을 시작합니다")
-@app_commands.describe(채널="비우면 현재 채널")
-@manager
-async def start(interaction: discord.Interaction, 채널: discord.TextChannel = None):
-    ch = 채널 or interaction.channel
-    db.add_channel(conn, ch.id, interaction.guild_id, ch.name)
-    await interaction.response.send_message(f"{ch.mention} 수집 시작", ephemeral=True)
-    await ch.send(NOTICE)
+# --- 웹 콘솔용 브리지 --------------------------------------------------------
+# 콘솔은 별도 스레드에서 돌기 때문에 봇 루프에 코루틴을 넘겨야 한다.
 
 
-@client.tree.command(name="수집중지", description="채널의 대화 수집을 중지합니다")
-@manager
-async def stop(interaction: discord.Interaction, 채널: discord.TextChannel = None):
-    ch = 채널 or interaction.channel
-    ok = db.remove_channel(conn, ch.id)
-    await interaction.response.send_message(
-        f"{ch.mention} 수집 중지" if ok else f"{ch.mention} 는 수집 중이 아닙니다",
-        ephemeral=True,
-    )
+class NotReady(RuntimeError):
+    pass
 
 
-@client.tree.command(name="backfill", description="과거 대화를 일회성으로 가져옵니다")
-@app_commands.describe(
-    채널="비우면 현재 채널",
-    일수="최근 N일. 기본 90일",
-    시작="YYYY-MM-DD. 주면 일수 대신 이 날짜부터",
-    끝="YYYY-MM-DD. 비우면 오늘까지",
-)
-@manager
-async def backfill(
-    interaction: discord.Interaction,
-    채널: discord.TextChannel = None,
-    일수: int = 90,
-    시작: str = "",
-    끝: str = "",
-):
-    ch = 채널 or interaction.channel
-    if not db.is_collected(conn, ch.id):
-        await interaction.response.send_message(
-            f"{ch.mention} 는 수집 채널이 아닙니다. `/수집시작` 먼저 실행하세요.",
-            ephemeral=True,
-        )
-        return
-    for label, d in (("시작", 시작), ("끝", 끝)):
-        if d and not db.valid_date(d):
-            await interaction.response.send_message(
-                f"{label} 날짜 형식이 잘못됐습니다: `{d}` (YYYY-MM-DD)", ephemeral=True
-            )
-            return
-    if 시작 and 끝 and 끝 < 시작:
-        await interaction.response.send_message(
-            f"끝(`{끝}`)이 시작(`{시작}`)보다 앞섭니다.", ephemeral=True
-        )
-        return
+def ready():
+    return client.is_ready() and not client.is_closed()
 
-    if 시작:
-        after = datetime.fromisoformat(db.kst_day_range(시작)[0])
-        before = datetime.fromisoformat(db.kst_day_range(끝)[1]) if 끝 else None
-        span = f"{시작}~{끝 or '오늘'}"
-    else:
-        after, before = datetime.now(timezone.utc) - timedelta(days=일수), None
-        span = f"최근 {일수}일"
 
-    await interaction.response.defer(ephemeral=True)
+def _call(coro, timeout=120):
+    if not ready():
+        coro.close()
+        raise NotReady("봇이 아직 디스코드에 접속하지 않았습니다.")
+    return asyncio.run_coroutine_threadsafe(coro, client.loop).result(timeout)
+
+
+def guild_channels():
+    """수집 대상이 될 수 있는 텍스트 채널. 읽기 권한 여부도 같이 준다."""
+    if not ready():
+        raise NotReady("봇이 아직 디스코드에 접속하지 않았습니다.")
+    out = []
+    for g in client.guilds:
+        for ch in g.text_channels:
+            perms = ch.permissions_for(g.me)
+            out.append({
+                "id": str(ch.id),
+                "name": ch.name,
+                "guild": g.name,
+                "guild_id": str(g.id),
+                "readable": bool(perms.read_message_history and perms.view_channel),
+                "collected": db.is_collected(conn, ch.id),
+            })
+    return sorted(out, key=lambda c: (c["guild"], c["name"]))
+
+
+def start_collect(channel_id, notice=True):
+    ch = client.get_channel(int(channel_id))
+    if ch is None:
+        raise NotReady("채널을 찾을 수 없습니다. 봇이 그 서버에 있는지 확인하세요.")
+    db.add_channel(conn, ch.id, ch.guild.id, ch.name)
+    if notice:
+        _call(ch.send(NOTICE))
+    return ch.name
+
+
+def stop_collect(channel_id):
+    return db.remove_channel(conn, channel_id)
+
+
+async def _backfill(ch, after, before, job):
     n = 0
     async for msg in ch.history(limit=None, after=after, before=before, oldest_first=True):
         if msg.author.bot or db.is_opted_out(conn, msg.author.id):
             continue
         db.upsert_message(conn, msg)
         n += 1
-    log.info("backfill %s (%s): %d건", ch.name, span, n)
-    await interaction.followup.send(f"{ch.mention} {span} {n}건 적재", ephemeral=True)
+        if job is not None and n % 50 == 0:
+            job["count"] = n
+    if job is not None:
+        job["count"] = n
+    return n
+
+
+def run_backfill(channel_id, after=None, before=None, days=None, job=None):
+    """콘솔이 부른다. after/before 는 UTC datetime, 없으면 days 로 계산."""
+    ch = client.get_channel(int(channel_id))
+    if ch is None:
+        raise NotReady("채널을 찾을 수 없습니다.")
+    if after is None:
+        after = datetime.now(timezone.utc) - timedelta(days=days or 90)
+    return _call(_backfill(ch, after, before, job), timeout=3600)
+
+
+# --- 슬래시 커맨드 (디스코드 안에서 반드시 닿아야 하는 것만) ------------------
+
+
+@client.tree.command(name="시작", description="내 세팅 콘솔을 엽니다 — 여기서 거의 다 됩니다")
+async def setup(interaction: discord.Interaction):
+    perms = interaction.user.guild_permissions if interaction.guild else None
+    is_manager = bool(perms and perms.manage_guild)
+    existing = db.get_link(conn, interaction.user.id)
+    code, ttl = db.new_pair_code(
+        conn, interaction.user.id, interaction.user.display_name, is_manager
+    )
+    head = (
+        f"현재 연동: **{existing['identity']}** ({existing['agent']})\n\n"
+        if existing
+        else ""
+    )
+    menu = (
+        "· 대화 보기 — 채팅형 뷰어, 날짜 범위, 검색\n"
+        "· 에이전트 계정 연결 — 브라우저 로그인만\n"
+        "· MCP 연결 — Notion · Figma 등 클릭 한 번\n"
+        "· 리더보드\n"
+    )
+    if is_manager:
+        menu += "· **수집 관리** — 채널 켜고 끄기, 과거 대화 가져오기\n"
+    await interaction.response.send_message(
+        head
+        + f"**세팅 콘솔 → {LAUNCHER_URL}/?code={code}**\n"
+        f"(연동 코드 `{code}` · {ttl}분 유효 · 자동으로 채워집니다)\n\n"
+        + menu
+        + "\n링크가 안 열리면 본인 PC에서 `start.bat` 을 먼저 실행하세요.\n"
+        "**반드시 본인 CLI 계정으로만 동작합니다.**",
+        ephemeral=True,
+    )
+
+
+@client.tree.command(name="상태", description="수집 현황을 봅니다")
+async def status(interaction: discord.Interaction):
+    s = db.stats(conn)
+    lines = [
+        f"**수집 채널 {s['channels']}개 · 메시지 {s['messages']}건 · 수집중단 {s['optouts']}명**"
+    ]
+    for c in db.list_channels(conn):
+        last = (c["last_message_at"] or "-")[:16].replace("T", " ")
+        lines.append(f"· #{c['channel_name']} — {c['message_count']}건, 최근 {last} UTC")
+    lines.append(f"\n자세히 → {LAUNCHER_URL}")
+    await interaction.response.send_message("\n".join(lines), ephemeral=True)
+
+
+@client.tree.command(name="리더보드", description="발언 집계를 봅니다")
+async def leaderboard_cmd(interaction: discord.Interaction):
+    top = db.leaderboard(conn, None)[:5]
+    lines = [f"**리더보드 → {LAUNCHER_URL}/#board**", ""]
+    if top:
+        lines += [
+            f"{i}. {r['author']} — {r['messages']}건 / {r['days']}일"
+            for i, r in enumerate(top, 1)
+        ]
+    else:
+        lines.append("아직 수집된 대화가 없습니다. 콘솔의 **수집 관리** 에서 채널을 켜세요.")
+    await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
 
 @client.tree.command(name="수집중단", description="내 메시지를 수집에서 제외합니다")
@@ -174,93 +240,6 @@ async def optin(interaction: discord.Interaction):
         else "수집 중단 상태가 아니었습니다.",
         ephemeral=True,
     )
-
-
-@client.tree.command(name="상태", description="수집 현황을 봅니다")
-async def status(interaction: discord.Interaction):
-    s = db.stats(conn)
-    lines = [
-        f"**수집 채널 {s['channels']}개 · 메시지 {s['messages']}건 · 수집중단 {s['optouts']}명**"
-    ]
-    for c in db.list_channels(conn):
-        last = (c["last_message_at"] or "-")[:16].replace("T", " ")
-        lines.append(f"· #{c['channel_name']} — {c['message_count']}건, 최근 {last} UTC")
-    await interaction.response.send_message("\n".join(lines), ephemeral=True)
-
-
-# --- CLI 연동 (사용 전 필수) ------------------------------------------------
-
-LAUNCHER_URL = os.getenv("LAUNCHER_URL", "http://127.0.0.1:8787")
-
-
-@client.tree.command(name="시작", description="내 세팅 콘솔을 엽니다 (에이전트·MCP 연결)")
-async def setup(interaction: discord.Interaction):
-    existing = db.get_link(conn, interaction.user.id)
-    code, ttl = db.new_pair_code(conn, interaction.user.id, interaction.user.display_name)
-    head = (
-        f"현재 연동: **{existing['identity']}** ({existing['agent']})\n\n"
-        if existing
-        else ""
-    )
-    await interaction.response.send_message(
-        head
-        + f"**세팅 콘솔 열기 → {LAUNCHER_URL}/?code={code}**\n"
-        f"(연동 코드 `{code}` · {ttl}분 유효)\n\n"
-        "콘솔에서 다음을 전부 할 수 있습니다.\n"
-        "· Claude / Codex 계정 연결 — 브라우저 로그인만\n"
-        "· 디스코드 연동 — 코드는 자동으로 채워집니다\n"
-        "· Notion · Figma 등 MCP 연결\n\n"
-        "링크가 안 열리면 본인 PC에서 `start.bat` 을 먼저 실행하세요.\n"
-        "**반드시 본인 CLI 계정으로만 동작합니다.**",
-        ephemeral=True,
-    )
-
-
-@client.tree.command(name="리더보드", description="발언 집계를 봅니다")
-async def leaderboard_cmd(interaction: discord.Interaction):
-    top = db.leaderboard(conn, None)[:5]
-    lines = [f"**리더보드 → {LAUNCHER_URL}/leaderboard**", ""]
-    if top:
-        lines += [
-            f"{i}. {r['author']} — {r['messages']}건 / {r['days']}일"
-            for i, r in enumerate(top, 1)
-        ]
-    else:
-        lines.append("아직 수집된 대화가 없습니다. `/수집시작` 부터 실행하세요.")
-    await interaction.response.send_message("\n".join(lines), ephemeral=True)
-
-
-@client.tree.command(name="연동상태", description="내 CLI 연동 상태를 봅니다")
-async def link_status(interaction: discord.Interaction):
-    row = db.get_link(conn, interaction.user.id)
-    await interaction.response.send_message(
-        f"연동됨 — **{row['identity']}** ({row['agent']})"
-        f", {row['linked_at'][:16].replace('T', ' ')} UTC"
-        if row
-        else "연동되어 있지 않습니다. `/시작` 으로 본인 CLI를 연결하세요.",
-        ephemeral=True,
-    )
-
-
-@client.tree.command(name="연동해제", description="내 CLI 연동을 해제합니다")
-async def link_remove(interaction: discord.Interaction):
-    ok = db.unlink(conn, interaction.user.id)
-    await interaction.response.send_message(
-        "연동을 해제했습니다. 다시 쓰려면 `/시작` 하세요."
-        if ok
-        else "연동되어 있지 않았습니다.",
-        ephemeral=True,
-    )
-
-
-@start.error
-@stop.error
-@backfill.error
-async def perm_error(interaction: discord.Interaction, error):
-    if isinstance(error, app_commands.MissingPermissions):
-        await interaction.response.send_message("서버 관리 권한이 필요합니다.", ephemeral=True)
-    else:
-        raise error
 
 
 def main():

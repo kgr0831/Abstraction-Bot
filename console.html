@@ -1,0 +1,477 @@
+<!doctype html><html lang="ko"><meta charset="utf-8">
+<title>Abstraction 콘솔</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+ :root{color-scheme:light dark;--line:#8883;--dim:#888;--acc:#4f46e5;--ok:#059669;--warn:#d97706;
+       --bg2:#8881}
+ *{box-sizing:border-box}
+ body{font:15px/1.6 system-ui,'Malgun Gothic',sans-serif;max-width:860px;margin:0 auto;
+      padding:28px 20px 60px}
+ h1{font-size:20px;margin:0} h2{font-size:13px;margin:26px 0 8px;color:var(--dim);
+    text-transform:uppercase;letter-spacing:.07em}
+ header{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
+ #who{font-size:13px;color:var(--dim)}
+ nav{display:flex;gap:4px;margin:18px 0 6px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+ nav a{padding:9px 14px;text-decoration:none;color:var(--dim);border-bottom:2px solid transparent;
+       font-weight:600;font-size:14px}
+ nav a.on{color:var(--acc);border-bottom-color:var(--acc)}
+ .card{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:10px 0;
+       display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+ .card>div:first-child{min-width:0;flex:1}
+ .who{font-weight:600} .meta{color:var(--dim);font-size:13px}
+ .ok{color:var(--ok);font-weight:600} .warn{color:var(--warn);font-weight:600}
+ .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+ button{font:inherit;padding:9px 16px;border-radius:9px;border:0;background:var(--acc);
+        color:#fff;cursor:pointer} button:hover{filter:brightness(1.1)}
+ button:disabled{opacity:.45;cursor:not-allowed;filter:none}
+ button.ghost{background:transparent;color:var(--dim);border:1px solid var(--line);
+              padding:7px 13px;font-size:14px}
+ button.danger{background:transparent;color:#dc2626;border:1px solid #dc262655;padding:7px 13px;font-size:14px}
+ button.on{background:var(--acc);color:#fff}
+ input,select{font:inherit;padding:8px 11px;border-radius:9px;border:1px solid var(--line);
+        background:transparent;color:inherit;max-width:100%}
+ label.f{font-size:13px;color:var(--dim);display:flex;gap:6px;align-items:center}
+ .log{white-space:pre-wrap;background:var(--bg2);border-radius:10px;padding:12px 14px;margin-top:10px;
+      font:12.5px/1.6 ui-monospace,monospace;max-height:220px;overflow:auto;display:none}
+ a.big{display:inline-block;margin-top:8px;padding:9px 16px;background:var(--ok);color:#fff;
+       border-radius:9px;text-decoration:none}
+ .empty{color:var(--dim);padding:30px 0;text-align:center}
+ /* 채팅 */
+ #stream{border:1px solid var(--line);border-radius:12px;padding:6px 14px 14px;
+         max-height:62vh;overflow:auto;margin-top:10px}
+ .day{position:sticky;top:0;text-align:center;font-size:12px;color:var(--dim);
+      background:var(--bg2);border-radius:20px;padding:3px 12px;margin:14px auto 8px;width:max-content;
+      backdrop-filter:blur(4px)}
+ .msg{display:flex;gap:10px;padding:2px 0}
+ .msg.head{margin-top:12px}
+ .av{width:32px;height:32px;border-radius:50%;background:var(--acc);color:#fff;flex:0 0 32px;
+     display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700}
+ .av.gap{background:transparent}
+ .bod{min-width:0;flex:1}
+ .nm{font-weight:700;font-size:14px} .tm{color:var(--dim);font-size:11.5px;margin-left:6px}
+ .tx{white-space:pre-wrap;word-break:break-word}
+ .tag{display:inline-block;font-size:11px;color:var(--dim);border:1px solid var(--line);
+      border-radius:5px;padding:0 5px;margin-right:5px}
+ .msg a.jump{float:right;color:var(--dim);font-size:11.5px;text-decoration:none;opacity:0;transition:.1s}
+ .msg:hover a.jump{opacity:1}
+ mark{background:#facc15aa;color:inherit;border-radius:3px}
+ /* 표 */
+ table{width:100%;border-collapse:collapse;margin-top:12px}
+ th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line)}
+ th{font-size:12.5px;color:var(--dim)}
+ td.n{text-align:right;font-variant-numeric:tabular-nums}
+ .rank{color:var(--dim);width:32px}
+ .bar{height:5px;background:var(--acc);border-radius:3px;margin-top:4px}
+ .chips{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+ .chip{border:1px solid var(--line);border-radius:20px;padding:4px 11px;font-size:12.5px;
+       cursor:pointer;color:var(--dim)}
+ .chip.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+ .banner{border:1px solid var(--warn);color:var(--warn);border-radius:10px;padding:10px 14px;
+         margin:10px 0;font-size:14px;display:none}
+</style>
+
+<header>
+  <h1>Abstraction 콘솔</h1>
+  <div id="who">확인 중...</div>
+</header>
+<nav id="nav"></nav>
+<div id="banner" class="banner"></div>
+<main id="view"></main>
+
+<script>
+const AG = __AGENTS__, CATALOG = __MCP__, SELFMCP = __SELFMCP__, PRESET = __CODE__;
+const $ = s => document.querySelector(s);
+const el = (t, cls, html) => { const e=document.createElement(t); if(cls) e.className=cls;
+  if(html!=null) e.innerHTML=html; return e; };
+const esc = s => { const d=document.createElement('div'); d.textContent=s??''; return d.innerHTML; };
+const TABS = [['chat','대화'],['collect','수집'],['connect','연결'],['board','리더보드']];
+let ME = {}, POLL = null;
+
+const today = () => new Date(Date.now()+9*3600e3).toISOString().slice(0,10);
+const ago = n => new Date(Date.now()+9*3600e3-n*86400e3).toISOString().slice(0,10);
+
+async function api(path, opts){
+  const r = await fetch(path, opts);
+  let j = {}; try { j = await r.json(); } catch(e){}
+  if(!r.ok && !j.error && !j.ok) j.error = j.error || ('요청 실패 ('+r.status+')');
+  return j;
+}
+const post = (p, body) => api(p, {method:'POST', headers:{'Content-Type':'application/json'},
+                                 body:JSON.stringify(body)});
+
+function nav(){
+  const cur = (location.hash||'#chat').slice(1);
+  $('#nav').textContent='';
+  for(const [k,label] of TABS){
+    const a = el('a', k===cur?'on':''); a.href='#'+k; a.textContent=label;
+    if(k==='collect' && !ME.is_manager) a.style.display='none';
+    $('#nav').appendChild(a);
+  }
+  return cur;
+}
+
+async function boot(){
+  ME = await api('/api/me');
+  const bits = [];
+  if(ME.linked) bits.push('<span class="ok">'+esc(ME.user_name)+'</span> 연동됨');
+  else bits.push('<span class="warn">디스코드 미연동</span>');
+  if(ME.account) bits.push(esc(ME.account.identity));
+  $('#who').innerHTML = bits.join(' · ');
+  const b = $('#banner');
+  if(!ME.bot_ready){ b.style.display='block';
+    b.textContent = '봇이 실행 중이 아닙니다. start.bat 으로 실행하면 수집 관리와 대화 수집이 동작합니다.'; }
+  else b.style.display='none';
+  route();
+}
+
+function route(){
+  clearInterval(POLL); POLL=null;
+  const cur = nav();
+  $('#view').textContent='';
+  ({chat:viewChat, collect:viewCollect, connect:viewConnect, board:viewBoard}[cur] || viewChat)();
+}
+window.addEventListener('hashchange', route);
+
+/* ---------------- 대화 ---------------- */
+async function viewChat(){
+  const v = $('#view');
+  v.appendChild(el('h2', null, '대화 보기'));
+  const bar = el('div','card');
+  bar.innerHTML =
+    '<div class="row" style="flex:1">'+
+    '<select id="ch"></select>'+
+    '<label class="f">부터 <input type="date" id="d1"></label>'+
+    '<label class="f">까지 <input type="date" id="d2"></label>'+
+    '</div>';
+  const go = el('button', null); go.textContent='보기';
+  bar.appendChild(go); v.appendChild(bar);
+
+  const quick = el('div','chips');
+  for(const [label, s, e] of [['오늘',today(),''],['어제',ago(1),ago(1)],
+      ['최근 7일',ago(6),''],['최근 30일',ago(29),'']]){
+    const c = el('span','chip', esc(label));
+    c.onclick = ()=>{ $('#d1').value=s; $('#d2').value=e; load(); };
+    quick.appendChild(c);
+  }
+  v.appendChild(quick);
+
+  const sbar = el('div','card');
+  sbar.innerHTML = '<div class="row" style="flex:1">'+
+    '<input type="text" id="q" placeholder="이 기간에서 검색 (비우면 전체 대화)" style="flex:1;min-width:200px">'+
+    '</div>';
+  const sgo = el('button','ghost'); sgo.textContent='검색';
+  sbar.appendChild(sgo); v.appendChild(sbar);
+
+  const stream = el('div', null); stream.id='stream'; v.appendChild(stream);
+
+  const chans = await api('/api/channels');
+  const sel = $('#ch');
+  if(!chans.length){
+    sel.appendChild(el('option', null, '수집 중인 채널 없음'));
+    stream.innerHTML = '<div class="empty">수집 중인 채널이 없습니다.'+
+      (ME.is_manager?' <b>수집</b> 탭에서 채널을 켜세요.':' 서버 관리자에게 요청하세요.')+'</div>';
+    return;
+  }
+  for(const c of chans){
+    const o = el('option', null, '#'+esc(c.channel_name)+' ('+c.message_count+')');
+    o.value = c.channel_id; sel.appendChild(o);
+  }
+  $('#d1').value = ago(6); $('#d2').value = '';
+  go.onclick = load; sgo.onclick = load;
+  $('#q').addEventListener('keydown', e => { if(e.key==='Enter') load(); });
+  sel.onchange = load;
+  load();
+
+  async function load(){
+    // 끝 날짜를 비우면 '오늘까지' 로 읽는다 (두 칸이 범위로 보이므로)
+    const q = $('#q').value.trim(), ch = sel.value;
+    const d1 = $('#d1').value || today(), d2 = $('#d2').value || today();
+    stream.innerHTML = '<div class="empty">불러오는 중...</div>';
+    const r = q
+      ? await api('/api/search?'+new URLSearchParams({q, channel:ch, since:d1, until:d2}))
+      : await api('/api/conversation?'+new URLSearchParams({channel:ch, date:d1, until:d2}));
+    if(r.error){ stream.innerHTML='<div class="empty">'+esc(r.error)+'</div>'; return; }
+    render(stream, r.messages||[], q);
+  }
+}
+
+function render(box, msgs, q){
+  box.textContent='';
+  if(!msgs.length){ box.innerHTML='<div class="empty">해당 조건에 대화가 없습니다.</div>'; return; }
+  msgs = msgs.slice().sort((a,b)=> a.at < b.at ? -1 : 1);
+  let day='', prev='';
+  for(const m of msgs){
+    const d = m.at.slice(0,10);
+    if(d!==day){ day=d; prev=''; box.appendChild(el('div','day', esc(d))); }
+    const head = m.author !== prev;
+    const row = el('div', 'msg'+(head?' head':''));
+    const av = el('div','av'+(head?'':' gap'), head?esc((m.author||'?').slice(0,1)):'');
+    row.appendChild(av);
+    const bod = el('div','bod');
+    if(head) bod.appendChild(el('div', null,
+      '<span class="nm">'+esc(m.author)+'</span><span class="tm">'+esc(m.at.slice(11,16))+'</span>'));
+    let text = esc(m.content);
+    if(q) text = text.replace(new RegExp(esc(q).replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi'),
+                              s=>'<mark>'+s+'</mark>');
+    const tags = (m.thread?'<span class="tag">스레드</span>':'')
+               + (m.reply_to?'<span class="tag">답장</span>':'')
+               + (m.files?'<span class="tag">첨부 '+m.files+'</span>':'');
+    bod.appendChild(el('div','tx', tags+text));
+    row.appendChild(bod);
+    const a = el('a','jump','원문'); a.target='_blank';
+    a.href='https://discord.com/channels/'+m.guild_id+'/'+m.channel_id+'/'+m.id;
+    row.appendChild(a);
+    box.appendChild(row);
+    prev = m.author;
+  }
+  box.scrollTop = box.scrollHeight;
+}
+
+/* ---------------- 수집 ---------------- */
+async function viewCollect(){
+  const v = $('#view');
+  if(!ME.is_manager){
+    v.innerHTML='<div class="empty">서버 관리 권한이 필요합니다. 디스코드에서 <b>/시작</b> 을 다시 실행해 권한을 갱신하세요.</div>';
+    return;
+  }
+  v.appendChild(el('h2', null, '수집 채널'));
+  const list = el('div', null); v.appendChild(list);
+
+  v.appendChild(el('h2', null, '과거 대화 가져오기'));
+  const bf = el('div','card');
+  bf.innerHTML = '<div class="row" style="flex:1">'+
+    '<select id="bch"></select>'+
+    '<label class="f">부터 <input type="date" id="bs"></label>'+
+    '<label class="f">까지 <input type="date" id="be"></label>'+
+    '<label class="f">또는 최근 <input type="number" id="bd" value="90" min="1" max="3650" style="width:80px"> 일</label>'+
+    '</div>';
+  const run = el('button', null); run.textContent='가져오기';
+  bf.appendChild(run); v.appendChild(bf);
+  const blog = el('div','log'); v.appendChild(blog);
+
+  v.appendChild(el('h2', null, '내 수집 설정'));
+  const oo = el('div','card'); v.appendChild(oo);
+
+  const chans = await api('/api/guild-channels');
+  if(chans.error){
+    list.innerHTML='<div class="empty">'+esc(chans.error)+'</div>';
+  } else {
+    list.textContent='';
+    for(const c of chans){
+      const card = el('div','card');
+      card.appendChild(el('div', null,
+        '<div class="who">#'+esc(c.name)+'</div><div class="meta">'+esc(c.guild)+
+        (c.readable?'':' · <span class="warn">읽기 권한 없음</span>')+'</div>'));
+      const b = el('button', c.collected?'danger':'');
+      b.textContent = c.collected?'수집 중지':'수집 시작';
+      b.disabled = !c.readable && !c.collected;
+      b.onclick = async ()=>{
+        b.disabled=true;
+        const r = await post('/api/collect', {channel_id:c.id, on:!c.collected, notice:true});
+        if(!r.ok) alert(r.error||'실패');
+        viewCollect();
+      };
+      card.appendChild(b); list.appendChild(card);
+      const o = el('option', null, '#'+esc(c.name)); o.value=c.id;
+      if(c.collected) $('#bch').appendChild(o);
+    }
+    if(!$('#bch').options.length)
+      $('#bch').appendChild(el('option', null, '수집 중인 채널 없음'));
+  }
+
+  run.onclick = async ()=>{
+    blog.style.display='block'; blog.textContent='시작하는 중...';
+    run.disabled=true;
+    const body = {channel_id:$('#bch').value};
+    if($('#bs').value){ body.since=$('#bs').value; body.until=$('#be').value; }
+    else body.days = Number($('#bd').value)||90;
+    const r = await post('/api/backfill', body);
+    if(!r.ok){ blog.textContent = r.error||'실패'; run.disabled=false; return; }
+    POLL = setInterval(async ()=>{
+      const j = await api('/api/job/'+r.id);
+      blog.textContent = (j.span||'')+' — '+(j.count||0)+'건 적재'+(j.done?'':' ...');
+      if(j.lines && j.lines.length) blog.textContent += '\n'+j.lines.join('\n');
+      if(j.done){ clearInterval(POLL); POLL=null; run.disabled=false; }
+    }, 800);
+  };
+
+  const st = await api('/api/optout');
+  oo.textContent='';
+  if(!st.ok){ oo.appendChild(el('div', null, '<div class="meta">'+esc(st.error)+'</div>')); }
+  else {
+    oo.appendChild(el('div', null, '<div class="who">내 메시지 수집</div>'+
+      '<div class="meta">'+(st.opted_out?'<span class="warn">제외 중</span> — 저장된 것도 조회에서 빠집니다'
+                                        :'<span class="ok">수집 중</span>')+'</div>'));
+    const b = el('button', st.opted_out?'':'danger');
+    b.textContent = st.opted_out?'수집 재개':'수집 중단';
+    b.onclick = async ()=>{ const r = await post('/api/optout', {out: !st.opted_out});
+      if(r.message) alert(r.message); viewCollect(); };
+    oo.appendChild(b);
+  }
+}
+
+/* ---------------- 연결 ---------------- */
+async function viewConnect(){
+  const v = $('#view');
+  v.appendChild(el('h2', null, '1 · 에이전트 계정'));
+  const accBox = el('div', null); v.appendChild(accBox);
+  const addBox = el('div', null); v.appendChild(addBox);
+
+  v.appendChild(el('h2', null, '2 · 디스코드 연동'));
+  const pair = el('div','card');
+  pair.innerHTML = '<div><div class="who">연동 코드</div>'+
+    '<div class="meta">디스코드에서 <b>/시작</b> — 링크로 들어오면 자동으로 채워집니다</div></div>';
+  const pin = el('input'); pin.type='text'; pin.id='code'; pin.placeholder='ABC123';
+  pin.maxLength=6; pin.autocomplete='off';
+  const pb = el('button', null); pb.textContent='연동';
+  pair.appendChild(el('div','row')).append(pin, pb);
+  v.appendChild(pair);
+  const pmsg = el('div','meta'); v.appendChild(pmsg);
+
+  v.appendChild(el('h2', null, '3 · MCP 연결'));
+  v.appendChild(el('div','meta','기본 제공 항목은 주소를 입력할 필요가 없습니다. 인증이 필요하면 브라우저가 열립니다.'));
+  const mcpBox = el('div', null); v.appendChild(mcpBox);
+
+  v.appendChild(el('h2', null, '온디맨드 — 목록에 없는 MCP'));
+  const od = el('div','card');
+  od.innerHTML = '<div class="row" style="flex:1">'+
+    '<input type="text" id="mn" placeholder="이름 (예: my-server)" style="width:170px">'+
+    '<input type="text" id="mu" placeholder="http://127.0.0.1:3845/mcp 또는 https://..." style="flex:1;min-width:220px">'+
+    '</div>';
+  const ob = el('button','ghost'); ob.textContent='추가'; od.appendChild(ob); v.appendChild(od);
+  const log = el('div','log'); v.appendChild(log);
+
+  const accts = await api('/api/accounts');
+  accBox.textContent='';
+  if(!accts.length) accBox.appendChild(el('div','card','<div class="meta">등록된 계정이 없습니다. 아래에서 연결하세요.</div>'));
+  for(const a of accts){
+    const card = el('div','card');
+    card.appendChild(el('div', null, '<div class="who">'+esc(a.identity)+'</div>'+
+      '<div class="meta">'+esc(AG[a.agent]||a.agent)+' · '+
+      (a.linked?'<span class="ok">디스코드 연동됨</span>':'<span class="warn">디스코드 미연동</span>')+'</div>'));
+    const b = el('button','ghost'); b.textContent='연결 해제';
+    b.onclick = async ()=>{ if(!confirm('이 계정 연결을 해제할까요?')) return;
+      await post('/api/unlink', {home:a.home}); viewConnect(); };
+    card.appendChild(b); accBox.appendChild(card);
+  }
+  addBox.textContent='';
+  for(const [k,label] of Object.entries(AG)){
+    const card = el('div','card');
+    card.appendChild(el('div', null, '<div class="who">'+esc(label)+' 계정 추가</div>'+
+      '<div class="meta">브라우저 로그인만 하면 됩니다'+
+      (k==='claude'?' · 연결되면 이 프로젝트 MCP가 자동으로 붙습니다':'')+'</div>'));
+    const b = el('button', null); b.textContent='연결'; b.onclick=()=>login(k, log);
+    card.appendChild(b); addBox.appendChild(card);
+  }
+
+  if(PRESET) pin.value = PRESET;
+  pb.onclick = async ()=>{
+    if(!accts.length){ pmsg.innerHTML='<span class="warn">먼저 에이전트 계정을 연결하세요.</span>'; return; }
+    if(!pin.value.trim()){ pmsg.innerHTML='<span class="warn">코드를 입력하세요.</span>'; return; }
+    pmsg.textContent='연동 중...';
+    const r = await post('/api/discord-link', {code:pin.value.trim(), home:accts[0].home});
+    pmsg.innerHTML = r.ok ? '<span class="ok">'+esc(r.user_name)+' 님으로 연동됐습니다.</span>'
+                          : '<span class="warn">'+esc(r.error||'연동 실패')+'</span>';
+    if(r.ok){ pin.value=''; await boot(); location.hash='#connect'; }
+  };
+
+  // 카탈로그는 즉시 그리고, 연결 상태는 CLI 응답이 오면 채운다 (몇 초 걸릴 수 있음)
+  mcpBox.textContent='';
+  mcpBox.appendChild(el('div','meta','연결 상태 확인 중...')).id='mcpwait';
+  const r = await api('/api/mcp');
+  const have = new Set(r.servers||[]);
+  mcpBox.textContent='';
+  const items = [[SELFMCP.name, SELFMCP.label, SELFMCP.desc, true],
+    ...Object.entries(CATALOG).map(([k,v])=>[k, v.label, v.desc, false])];
+  for(const [key,label,desc,isSelf] of items){
+    const on = have.has(key);
+    const card = el('div','card');
+    card.appendChild(el('div', null, '<div class="who">'+esc(label)+
+      (on?' <span class="ok">연결됨</span>':'')+'</div><div class="meta">'+esc(desc)+
+      (isSelf?' · 자동':'')+'</div>'));
+    const b = el('button', on?'ghost':'');
+    b.textContent = on?'해제':'연결';
+    b.onclick = ()=> on ? mcpDo('/api/mcp/remove', {name:key}, log)
+                        : mcpDo('/api/mcp/add', {key}, log);
+    card.appendChild(b); mcpBox.appendChild(card);
+  }
+  for(const name of (r.servers||[]))
+    if(!CATALOG[name] && name!==SELFMCP.name){
+      const card = el('div','card');
+      card.appendChild(el('div', null, '<div class="who">'+esc(name)+
+        ' <span class="ok">연결됨</span></div><div class="meta">직접 추가함</div>'));
+      const b = el('button','ghost'); b.textContent='해제';
+      b.onclick = ()=> mcpDo('/api/mcp/remove', {name}, log);
+      card.appendChild(b); mcpBox.appendChild(card);
+    }
+  if(r.note) mcpBox.appendChild(el('div','meta', esc(r.note)));
+
+  ob.onclick = ()=> mcpDo('/api/mcp/add', {name:$('#mn').value, url:$('#mu').value}, log);
+}
+
+async function login(agent, log){
+  log.style.display='block'; log.textContent='로그인 창을 여는 중...';
+  const {id} = await post('/api/link/'+agent, {});
+  clearInterval(POLL); let shown=false;
+  POLL = setInterval(async ()=>{
+    const j = await api('/api/job/'+id);
+    log.textContent = (j.lines||[]).join('\n') || '진행 중...';
+    if(j.url && !shown){ shown=true;
+      const a=el('a','big','브라우저가 안 열렸다면 여기를 누르세요');
+      a.href=j.url; a.target='_blank';
+      log.appendChild(el('br')); log.appendChild(a); }
+    if(j.done){ clearInterval(POLL); POLL=null;
+      log.append(j.ok?'\n\n연결 완료: '+j.identity:'\n\n연결에 실패했습니다.');
+      await boot(); location.hash='#connect'; route(); }
+    log.scrollTop = log.scrollHeight;
+  }, 700);
+}
+
+async function mcpDo(path, body, log){
+  log.style.display='block'; log.textContent='처리 중...';
+  const r = await post(path, body);
+  log.textContent = (r.output || r.error || '') +
+    (r.ok ? '\n\n완료. 처음 쓸 때 브라우저에서 로그인하라고 나올 수 있습니다.' : '\n\n실패했습니다.');
+  viewConnect();
+}
+
+/* ---------------- 리더보드 ---------------- */
+async function viewBoard(){
+  const v = $('#view');
+  v.appendChild(el('h2', null, '리더보드'));
+  const chips = el('div','chips'); v.appendChild(chips);
+  const selBox = el('div','card'); selBox.innerHTML='<div class="meta">채널</div>';
+  const sel = el('select'); selBox.appendChild(sel); v.appendChild(selBox);
+  const out = el('div', null); v.appendChild(out);
+
+  let period = '7';
+  for(const [k,label] of [['7','최근 7일'],['30','최근 30일'],['all','전체']]){
+    const c = el('span','chip'+(k===period?' on':''), esc(label));
+    c.onclick = ()=>{ period=k; [...chips.children].forEach(x=>x.className='chip');
+      c.className='chip on'; load(); };
+    chips.appendChild(c);
+  }
+  const all = el('option', null, '전체 채널'); all.value=''; sel.appendChild(all);
+  for(const c of await api('/api/channels')){
+    const o = el('option', null, '#'+esc(c.channel_name)); o.value=c.channel_id; sel.appendChild(o);
+  }
+  sel.onchange = load;
+  load();
+
+  async function load(){
+    const r = await api('/api/leaderboard?'+new URLSearchParams({days:period, channel:sel.value}));
+    if(!r.rows || !r.rows.length){
+      out.innerHTML='<div class="empty">아직 수집된 대화가 없습니다.</div>'; return; }
+    const max = r.rows[0].messages;
+    out.innerHTML = '<table><thead><tr><th class="rank">#</th><th>이름</th>'+
+      '<th class="n">메시지</th><th class="n">활동일</th><th class="n">채널</th></tr></thead><tbody>'+
+      r.rows.map((x,i)=>'<tr><td class="rank">'+(i+1)+'</td><td>'+esc(x.author)+
+        '<div class="bar" style="width:'+Math.max(2,Math.round(x.messages/max*100))+'%"></div></td>'+
+        '<td class="n">'+x.messages+'</td><td class="n">'+x.days+'</td>'+
+        '<td class="n">'+x.channels+'</td></tr>').join('')+'</tbody></table>';
+  }
+}
+
+if(PRESET && !location.hash) location.hash='#connect';
+boot();
+</script>

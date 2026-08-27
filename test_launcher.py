@@ -1,30 +1,38 @@
 """launcher.py 자체 점검.
 
-핵심은 4번 — 격리 홈이 진짜로 격리되는지. 이게 깨지면 "새 계정 추가"가
-전부 기존 로그인을 그대로 보고하게 된다.
+핵심은 격리(4)와 권한 게이트(9~11) — 둘 다 조용히 깨지는 종류라 테스트가 필요하다.
 실제 로그인은 부작용이라 건드리지 않는다 (읽기 전용 status 만 호출).
 """
 
 import json
+import os
 import tempfile
 from pathlib import Path
 
-from starlette.testclient import TestClient
+os.environ.setdefault("COLLECTOR_DB", "data/_test_launcher.db")
+os.environ.setdefault("COLLECTOR_ACCOUNTS", "data/_test_launcher_accounts.json")
+for _f in ("data/_test_launcher.db", "data/_test_launcher.db-wal",
+           "data/_test_launcher.db-shm", "data/_test_launcher_accounts.json"):
+    if os.path.exists(_f):
+        os.remove(_f)
 
-import launcher
+from starlette.testclient import TestClient  # noqa: E402
+
+import db  # noqa: E402
+import launcher  # noqa: E402
 
 
 def main():
     c = TestClient(launcher.app)
 
-    # 1. 페이지가 뜨고 에이전트 목록이 주입된다
+    # 1. 콘솔 페이지가 뜨고 자리표시자가 전부 치환된다
     html = c.get("/").text
-    assert "__AGENTS__" not in html, "에이전트 목록이 주입되지 않음"
-    assert "Claude" in html and "Codex" in html, html[:200]
+    for ph in ("__AGENTS__", "__MCP__", "__SELFMCP__", "__CODE__"):
+        assert ph not in html, f"{ph} 미치환"
+    assert "Claude" in html and "리더보드" in html and "온디맨드" in html
 
-    # 2. 등록부 읽기
-    accts = c.get("/api/accounts").json()
-    assert isinstance(accts, list)
+    # 2. 코드가 URL 로 오면 페이지에 실린다
+    assert '"AB12CD"' in c.get("/?code=AB12CD").text
 
     # 3. 없는 에이전트는 404
     assert c.post("/api/link/nope").status_code == 404
@@ -34,58 +42,75 @@ def main():
         who = launcher.identity("claude", Path(tmp))
         assert who is None, f"격리 실패 — 빈 홈에서 계정이 보임: {who}"
 
-    # 5. 리더보드 페이지와 API
-    assert "리더보드" in c.get("/leaderboard").text
+    # 5. 대화 API 입력 검증
+    assert c.get("/api/conversation").status_code == 400
+    assert c.get("/api/conversation?channel=c1&date=8/27").status_code == 400
+    assert c.get("/api/conversation?channel=c1&date=2026-08-29&until=2026-08-27").status_code == 400
+    assert c.get("/api/conversation?channel=c1&date=2026-08-27").json()["messages"] == []
+    assert c.get("/api/search?q=").json()["messages"] == []
+    assert len(c.get("/api/days?days=5").json()) == 5
+    assert c.get("/api/channels").json() == []
+
+    # 6. 리더보드
     lb = c.get("/api/leaderboard?days=7").json()
     assert "rows" in lb and isinstance(lb["rows"], list)
 
-    # 6. 페어링 — 틀린 코드는 거부
+    # 7. 페어링 — 틀린 코드는 거부
     r = c.post("/api/pair", json={"code": "ZZZZZZ", "agent": "claude", "identity": "a@b.c"})
     assert r.status_code == 400 and not r.json()["ok"], r.text
 
-    # 7. 페어링 — 발급한 코드는 1회만 통한다
-    conn = launcher.db.connect()
+    # 8. 페어링 — 발급한 코드는 1회만 통한다
+    conn = db.connect()
     try:
-        code, _ = launcher.db.new_pair_code(conn, "d9", "테스터")
+        code, _ = db.new_pair_code(conn, "d9", "테스터", is_manager=False)
     finally:
         conn.close()
     r = c.post("/api/pair", json={"code": code, "agent": "claude", "identity": "a@b.c"})
     assert r.json().get("ok") and r.json()["user_name"] == "테스터", r.text
-    assert c.post("/api/pair",
-                  json={"code": code, "agent": "claude", "identity": "a@b.c"}
+    assert c.post("/api/pair", json={"code": code, "agent": "claude", "identity": "a@b.c"}
                   ).status_code == 400, "코드가 재사용됨"
-    conn = launcher.db.connect()
+
+    # 9. 계정이 있어도 관리 권한이 없으면 수집 관리는 막힌다
+    launcher.save_accounts([{"agent": "claude", "identity": "a@b.c", "home": "H"}])
+    me = c.get("/api/me").json()
+    assert me["linked"] and not me["is_manager"], me
+    assert c.post("/api/collect", json={"channel_id": "1", "on": True}).status_code == 403
+    assert c.post("/api/backfill", json={"channel_id": "1", "days": 7}).status_code == 403
+
+    # 10. 관리 권한이 붙으면 통과해서 다음 관문(봇 미실행)까지 간다
+    conn = db.connect()
     try:
-        launcher.db.unlink(conn, "d9")
+        code, _ = db.new_pair_code(conn, "d9", "테스터", is_manager=True)
     finally:
         conn.close()
+    assert c.post("/api/pair",
+                  json={"code": code, "agent": "claude", "identity": "a@b.c"}).json()["ok"]
+    assert c.get("/api/me").json()["is_manager"]
+    assert c.post("/api/collect", json={"channel_id": "1", "on": True}).status_code == 503
+    assert c.get("/api/guild-channels").status_code == 503
 
-    # 8. 계정 없이 디스코드 연동 시도는 막힌다
-    r = c.post("/api/discord-link", json={"code": "ABC123", "home": "없는경로"})
-    assert r.status_code == 400 and "계정" in r.json()["error"], r.text
+    # 11. 온디맨드 MCP 는 CLI 를 부르기 전에 입력을 거른다
+    assert c.post("/api/mcp/add", json={"name": "bad name", "url": "https://a"}).status_code == 400
+    assert c.post("/api/mcp/add", json={"name": "ok", "url": "ftp://a"}).status_code == 400
+    assert c.post("/api/mcp/remove", json={"name": "../evil"}).status_code == 400
 
-    # 9. MCP 추가 입력 검증 (CLI 호출 전에 걸러야 한다)
-    r = c.post("/api/mcp/add", json={"home": "없는경로", "name": "x", "url": "https://a"})
-    assert r.status_code == 400, r.text
+    # 12. 연결 해제는 AGENTS_DIR 밖 경로를 지우지 않는다
+    with tempfile.TemporaryDirectory() as outside:
+        probe = Path(outside) / "keep.txt"
+        probe.write_text("x", encoding="utf-8")
+        c.post("/api/unlink", json={"home": str(Path(outside))})
+        assert probe.exists(), "AGENTS_DIR 밖 경로를 지움 — 경로 가드 실패"
 
-    # 10. 저장/불러오기 왕복
-    orig = launcher.load_accounts()
-    try:
-        launcher.save_accounts([{"agent": "claude", "identity": "a@b.c", "home": "X"}])
-        assert c.get("/api/accounts").json()[0]["identity"] == "a@b.c"
-        # 11. 연결 해제는 AGENTS_DIR 밖 경로를 지우지 않는다
-        with tempfile.TemporaryDirectory() as outside:
-            probe = Path(outside) / "keep.txt"
-            probe.write_text("x", encoding="utf-8")
-            c.post("/api/unlink", json={"home": str(Path(outside))})
-            assert probe.exists(), "AGENTS_DIR 밖 경로를 지움 — 경로 가드 실패"
-        # 등록부에 없는 경로를 지워도 기존 항목은 남아 있어야 한다
-        assert c.get("/api/accounts").json()[0]["identity"] == "a@b.c"
-        c.post("/api/unlink", json={"home": "X"})
-        assert c.get("/api/accounts").json() == []
-    finally:
-        launcher.save_accounts(orig)
+    # 13. 수집 거부 왕복
+    assert c.get("/api/optout").json()["opted_out"] is False
+    assert c.post("/api/optout", json={"out": True}).json()["opted_out"] is True
+    assert c.get("/api/optout").json()["opted_out"] is True
+    assert c.post("/api/optout", json={"out": False}).json()["opted_out"] is False
 
+    for f in ("data/_test_launcher.db", "data/_test_launcher.db-wal",
+              "data/_test_launcher.db-shm", "data/_test_launcher_accounts.json"):
+        if os.path.exists(f):
+            os.remove(f)
     print("test_launcher: 통과")
 
 

@@ -46,11 +46,12 @@ CREATE TABLE IF NOT EXISTS optouts (
 
 -- 디스코드 사용자 <-> 본인 CLI 계정 바인딩. 이게 없으면 조회를 거부한다.
 CREATE TABLE IF NOT EXISTS links (
-  user_id   TEXT PRIMARY KEY,
-  user_name TEXT NOT NULL,
-  agent     TEXT NOT NULL,
-  identity  TEXT NOT NULL,
-  linked_at TEXT NOT NULL
+  user_id    TEXT PRIMARY KEY,
+  user_name  TEXT NOT NULL,
+  agent      TEXT NOT NULL,
+  identity   TEXT NOT NULL,
+  linked_at  TEXT NOT NULL,
+  is_manager INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_links_identity ON links(identity);
 
@@ -58,7 +59,8 @@ CREATE TABLE IF NOT EXISTS pair_codes (
   code       TEXT PRIMARY KEY,
   user_id    TEXT NOT NULL,
   user_name  TEXT NOT NULL,
-  expires_at TEXT NOT NULL
+  expires_at TEXT NOT NULL,
+  is_manager INTEGER NOT NULL DEFAULT 0
 );
 """
 
@@ -283,14 +285,18 @@ def day_counts(conn, channel=None, days=7):
 PAIR_TTL_MIN = 10
 
 
-def new_pair_code(conn, user_id, user_name):
-    """페어링 코드 발급. 사용자당 하나만 살아 있게 한다."""
+def new_pair_code(conn, user_id, user_name, is_manager=False):
+    """페어링 코드 발급. 사용자당 하나만 살아 있게 한다.
+
+    서버 관리 권한을 코드에 실어 보낸다 — 콘솔에서 수집 관리 메뉴를 열지 말지
+    이걸로 정한다. 권한이 바뀌면 /시작 을 다시 치면 갱신된다.
+    """
     conn.execute("DELETE FROM pair_codes WHERE user_id=?", (str(user_id),))
     code = secrets.token_hex(3).upper()
     expires = (datetime.now(timezone.utc) + timedelta(minutes=PAIR_TTL_MIN)).isoformat()
     conn.execute(
-        "INSERT INTO pair_codes VALUES (?,?,?,?)",
-        (code, str(user_id), user_name, expires),
+        "INSERT INTO pair_codes VALUES (?,?,?,?,?)",
+        (code, str(user_id), user_name, expires, int(is_manager)),
     )
     return code, PAIR_TTL_MIN
 
@@ -299,14 +305,14 @@ def redeem_pair_code(conn, code, agent, identity):
     """코드를 소진하고 바인딩을 만든다. 성공하면 (user_id, user_name)."""
     conn.execute("DELETE FROM pair_codes WHERE expires_at < ?", (now(),))
     row = conn.execute(
-        "SELECT user_id, user_name FROM pair_codes WHERE code=?", (code.strip().upper(),)
+        "SELECT * FROM pair_codes WHERE code=?", (code.strip().upper(),)
     ).fetchone()
     if not row:
         return None
     conn.execute("DELETE FROM pair_codes WHERE code=?", (code.strip().upper(),))
     conn.execute(
-        "INSERT OR REPLACE INTO links VALUES (?,?,?,?,?)",
-        (row["user_id"], row["user_name"], agent, identity, now()),
+        "INSERT OR REPLACE INTO links VALUES (?,?,?,?,?,?)",
+        (row["user_id"], row["user_name"], agent, identity, now(), row["is_manager"]),
     )
     return row["user_id"], row["user_name"]
 
@@ -367,3 +373,11 @@ def leaderboard(conn, since=None, channel=None):
         for v in agg.values()
     ]
     return sorted(out, key=lambda x: -x["messages"])
+
+
+def link_by_identity(conn, identity):
+    """이 콘솔이 누구 것인지. 수집 관리 메뉴를 열지 말지 여기서 정한다."""
+    return conn.execute(
+        "SELECT * FROM links WHERE identity=? ORDER BY linked_at DESC LIMIT 1",
+        (identity,),
+    ).fetchone()

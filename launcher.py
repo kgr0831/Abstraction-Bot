@@ -1,14 +1,17 @@
-"""사용자 세팅 콘솔 + 페어링 서버.
+"""세팅 콘솔 — 이 프로젝트의 GUI 전부.
 
-디스코드에서 /시작 을 치면 이 페이지 링크가 온다. 여기서 전부 끝난다:
-  1. 디스코드 연동 (페어링 코드)
-  2. 에이전트 CLI 계정 연결 (Claude / Codex)
-  3. MCP 연결 (Notion / Figma / 직접 입력)
+디스코드에서 /시작 을 치면 여기 링크가 온다. 슬래시 커맨드로 하던 일은
+거의 다 여기로 옮겼다.
+
+  대화     채팅형 뷰어 · 날짜 범위 · 검색
+  수집     채널 켜고 끄기 · 과거 대화 가져오기 (서버 관리 권한자만)
+  연결     에이전트 계정 · MCP (기본 제공은 클릭 한 번, 나머지는 URL 직접)
+  리더보드 발언 집계
 
 orca 패턴: 계정마다 격리된 홈을 만들고 그 안에서 벤더 CLI 자체의 로그인을 돌린다.
-사용자가 하는 일은 브라우저에서 로그인하는 것뿐이고 자격증명은 이 PC를 떠나지 않는다.
+자격증명은 이 PC를 떠나지 않는다.
 
-SERVER_URL 이 곧 페어링을 받는 쪽이다. 봇이 다른 머신으로 가면 이 값만 바꾼다.
+SERVER_URL 이 페어링을 받는 쪽이다. 봇이 다른 머신으로 가면 이 값만 바꾼다.
 """
 
 import json
@@ -16,13 +19,14 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
-import uuid
-import webbrowser
-from pathlib import Path
-
 import urllib.error
 import urllib.request
+import uuid
+import webbrowser
+from datetime import datetime, timedelta
+from pathlib import Path
 
 import uvicorn
 from starlette.applications import Starlette
@@ -38,7 +42,6 @@ ACCOUNTS = db.ACCOUNTS_PATH
 PORT = int(os.getenv("LAUNCHER_PORT", "8787"))
 SERVER_URL = os.getenv("SERVER_URL", "http://127.0.0.1:%d" % PORT)
 
-# 격리 홈을 주입할 환경변수와, 그 환경에서 돌릴 로그인/상태 명령
 AGENTS = {
     "claude": {
         "label": "Claude",
@@ -56,14 +59,34 @@ AGENTS = {
     },
 }
 
-# URL 이 바뀌면 여기 한 줄만 고친다. 목록에 없는 건 '직접 추가' 로 붙인다.
+# 기본 제공 MCP — 사용자는 URL 을 입력하지 않는다. 클릭하면 붙고,
+# 인증이 필요하면 CLI 가 브라우저를 띄운다.
+# URL 이 바뀌면 여기 한 줄만 고친다. 목록에 없는 건 '온디맨드' 탭에서 붙인다.
 MCP_CATALOG = {
-    "notion": {"label": "Notion", "url": "https://mcp.notion.com/mcp"},
-    "figma": {"label": "Figma", "url": "https://mcp.figma.com/mcp"},
+    "notion": {"label": "Notion", "url": "https://mcp.notion.com/mcp",
+               "desc": "요약·아이디어를 노션 DB에 기록"},
+    "figma": {"label": "Figma", "url": "https://mcp.figma.com/mcp",
+              "desc": "디자인 파일 읽기·생성"},
+    "linear": {"label": "Linear", "url": "https://mcp.linear.app/mcp",
+               "desc": "이슈·프로젝트"},
+    "sentry": {"label": "Sentry", "url": "https://mcp.sentry.dev/mcp",
+               "desc": "에러 추적"},
+    "github": {"label": "GitHub", "url": "https://api.githubcopilot.com/mcp/",
+               "desc": "저장소·이슈·PR"},
+}
+
+# 이 프로젝트 자신. stdio 라 URL 이 없고, 경로는 자동으로 채운다.
+SELF_MCP = {
+    "name": "discord-collector",
+    "label": "Discord 수집기 (이 프로젝트)",
+    "desc": "수집된 대화를 Claude Code에서 조회",
+    "args": [sys.executable, str(ROOT / "mcp_server.py")],
 }
 
 jobs = {}
 
+
+# --- 저장/실행 유틸 ---------------------------------------------------------
 
 def load_accounts():
     return db.local_accounts()
@@ -104,6 +127,41 @@ def identity(agent, home):
         return out.strip().splitlines()[0] if out.strip() else None
 
 
+def post_json(url, payload):
+    """SERVER_URL 로 보내는 유일한 요청. 새 의존성 없이 stdlib 로 끝낸다."""
+    req = urllib.request.Request(
+        url, data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"}, method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return r.status, json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, json.loads(e.read().decode("utf-8"))
+        except (ValueError, OSError):
+            return e.code, {"ok": False, "error": str(e)}
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        return 502, {"ok": False, "error": f"서버({SERVER_URL})에 연결하지 못했습니다: {e}"}
+
+
+def find_account(home):
+    for a in load_accounts():
+        if a["home"] == home:
+            return a
+    return None
+
+
+def primary_account():
+    accts = load_accounts()
+    return next((a for a in accts if a["agent"] == "claude"), accts[0] if accts else None)
+
+
+def bot_bridge():
+    """봇 모듈. 콘솔만 단독 실행 중이면 None."""
+    return sys.modules.get("bot")
+
+
 def do_login(job_id, agent):
     job = jobs[job_id]
     spec = AGENTS[agent]
@@ -135,49 +193,48 @@ def do_login(job_id, agent):
         save_accounts(accts)
         job["identity"] = who
         job["ok"] = True
+        if AGENTS[agent]["mcp"]:
+            # 이 프로젝트의 MCP 는 자동으로 붙인다. 사용자가 할 일이 없다.
+            run_cli(agent, home,
+                    ["claude", "mcp", "add", SELF_MCP["name"], "--"] + SELF_MCP["args"],
+                    timeout=60)
+            job["lines"].append("discord-collector MCP 자동 연결됨")
     else:
         job["lines"].append("[실패] 로그인이 완료되지 않았습니다.")
     job["done"] = True
 
 
-def post_json(url, payload):
-    """SERVER_URL 로 보내는 유일한 요청. 새 의존성 없이 stdlib 로 끝낸다."""
-    req = urllib.request.Request(
-        url, data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"}, method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=15) as r:
-            return r.status, json.loads(r.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        try:
-            return e.code, json.loads(e.read().decode("utf-8"))
-        except (ValueError, OSError):
-            return e.code, {"ok": False, "error": str(e)}
-    except (urllib.error.URLError, OSError, ValueError) as e:
-        return 502, {"ok": False, "error": f"서버({SERVER_URL})에 연결하지 못했습니다: {e}"}
-
-
-def find_account(home):
-    for a in load_accounts():
-        if a["home"] == home:
-            return a
-    return None
-
-
-# --- 라우트 -----------------------------------------------------------------
+# --- 기본 라우트 ------------------------------------------------------------
 
 async def page(request):
+    # 요청마다 읽는다 — 파일이 작고, 고칠 때 서버를 껐다 켜지 않아도 된다
     return HTMLResponse(
-        PAGE.replace("__AGENTS__", json.dumps(
+        (ROOT / "console.html").read_text(encoding="utf-8").replace("__AGENTS__", json.dumps(
             {k: v["label"] for k, v in AGENTS.items()}, ensure_ascii=False))
         .replace("__MCP__", json.dumps(MCP_CATALOG, ensure_ascii=False))
+        .replace("__SELFMCP__", json.dumps(
+            {k: SELF_MCP[k] for k in ("name", "label", "desc")}, ensure_ascii=False))
         .replace("__CODE__", json.dumps(request.query_params.get("code", "")))
     )
 
 
-async def leaderboard_page(request):
-    return HTMLResponse(BOARD)
+async def api_me(request):
+    """이 콘솔이 누구 것이고 무엇을 할 수 있는가."""
+    acct = primary_account()
+    out = {"account": acct, "linked": False, "user_name": None, "is_manager": False,
+           "bot_ready": False, "server_url": SERVER_URL}
+    b = bot_bridge()
+    out["bot_ready"] = bool(b and b.ready())
+    if acct:
+        conn = db.connect()
+        try:
+            row = db.link_by_identity(conn, acct["identity"])
+        finally:
+            conn.close()
+        if row:
+            out.update(linked=True, user_name=row["user_name"],
+                       is_manager=bool(row["is_manager"]))
+    return JSONResponse(out)
 
 
 async def api_accounts(request):
@@ -222,6 +279,8 @@ async def api_unlink(request):
     return JSONResponse({"ok": True})
 
 
+# --- 페어링 -----------------------------------------------------------------
+
 async def api_pair(request):
     """서버 쪽. 디스코드가 발급한 코드를 소진하고 바인딩을 만든다."""
     body = await request.json()
@@ -244,7 +303,7 @@ async def api_pair(request):
 async def api_discord_link(request):
     """클라이언트 쪽. 이 PC의 계정을 SERVER_URL 에 페어링한다."""
     body = await request.json()
-    acct = find_account(body.get("home", ""))
+    acct = find_account(body.get("home", "")) or primary_account()
     if not acct:
         return JSONResponse({"ok": False, "error": "먼저 에이전트 계정을 연결하세요."}, 400)
     status, out = await run_in_threadpool(
@@ -255,296 +314,262 @@ async def api_discord_link(request):
     return JSONResponse(out, status_code=status)
 
 
-async def api_mcp_list(request):
-    acct = find_account(request.query_params.get("home", ""))
-    if not acct or not AGENTS.get(acct["agent"], {}).get("mcp"):
-        return JSONResponse({"servers": [], "note": "이 에이전트는 MCP 관리를 지원하지 않습니다."})
-    out = run_cli(acct["agent"], acct["home"], ["claude", "mcp", "list"]).stdout
-    names = [
-        m.group(1)
-        for line in out.splitlines()
+# --- MCP --------------------------------------------------------------------
+
+def _mcp_names(agent, home):
+    out = run_cli(agent, home, ["claude", "mcp", "list"]).stdout
+    return [
+        m.group(1) for line in out.splitlines()
         if (m := re.match(r"\s*([\w-]+):", line))
     ]
-    return JSONResponse({"servers": names, "raw": out.strip()})
+
+
+async def api_mcp_list(request):
+    acct = find_account(request.query_params.get("home", "")) or primary_account()
+    if not acct or not AGENTS.get(acct["agent"], {}).get("mcp"):
+        return JSONResponse({"servers": [], "note": "Claude 계정을 연결하면 MCP를 붙일 수 있습니다."})
+    # CLI 호출이라 스레드로 보낸다 — 안 그러면 목록 뽑는 동안 서버 전체가 멈춘다
+    names = await run_in_threadpool(_mcp_names, acct["agent"], acct["home"])
+    return JSONResponse({"servers": names})
 
 
 async def api_mcp_add(request):
     body = await request.json()
-    acct = find_account(body.get("home", ""))
+    acct = find_account(body.get("home", "")) or primary_account()
     if not acct:
         return JSONResponse({"ok": False, "error": "계정을 찾을 수 없습니다."}, 400)
-    name, url = body.get("name", "").strip(), body.get("url", "").strip()
-    if not re.fullmatch(r"[\w-]{1,64}", name) or not url.startswith(("http://", "https://")):
-        return JSONResponse({"ok": False, "error": "이름 또는 URL 형식이 잘못됐습니다."}, 400)
-    r = run_cli(acct["agent"], acct["home"],
-                ["claude", "mcp", "add", "--transport", "http", name, url], timeout=90)
-    ok = r.returncode == 0
-    return JSONResponse({"ok": ok, "output": (r.stdout + r.stderr).strip()[-1500:]})
+    key = body.get("key", "")
+    if key == SELF_MCP["name"]:
+        args = ["claude", "mcp", "add", SELF_MCP["name"], "--"] + SELF_MCP["args"]
+        name = SELF_MCP["name"]
+    elif key in MCP_CATALOG:
+        name, url = key, MCP_CATALOG[key]["url"]
+        args = ["claude", "mcp", "add", "--transport", "http", name, url]
+    else:
+        # 온디맨드 — 지원 목록에 없는 서버는 사용자가 주소를 준다
+        name, url = body.get("name", "").strip(), body.get("url", "").strip()
+        if not re.fullmatch(r"[\w-]{1,64}", name):
+            return JSONResponse({"ok": False, "error": "이름은 영문·숫자·-·_ 만 됩니다."}, 400)
+        if not url.startswith(("http://", "https://")):
+            return JSONResponse({"ok": False, "error": "주소는 http:// 또는 https:// 로 시작해야 합니다."}, 400)
+        args = ["claude", "mcp", "add", "--transport", "http", name, url]
+    r = await run_in_threadpool(run_cli, acct["agent"], acct["home"], args, 120)
+    return JSONResponse({"ok": r.returncode == 0, "name": name,
+                         "output": (r.stdout + r.stderr).strip()[-1500:]})
 
 
 async def api_mcp_remove(request):
     body = await request.json()
-    acct = find_account(body.get("home", ""))
+    acct = find_account(body.get("home", "")) or primary_account()
     name = body.get("name", "").strip()
     if not acct or not re.fullmatch(r"[\w-]{1,64}", name):
         return JSONResponse({"ok": False, "error": "잘못된 요청입니다."}, 400)
-    r = run_cli(acct["agent"], acct["home"], ["claude", "mcp", "remove", name])
+    r = await run_in_threadpool(
+        run_cli, acct["agent"], acct["home"], ["claude", "mcp", "remove", name], 60)
     return JSONResponse({"ok": r.returncode == 0, "output": (r.stdout + r.stderr).strip()[-1500:]})
+
+
+# --- 대화 -------------------------------------------------------------------
+
+def _rows_to_json(rows):
+    out = []
+    for r in rows:
+        keys = r.keys()
+        out.append({
+            "id": r["id"],
+            "author": r["author_name"],
+            "content": r["content"],
+            "at": datetime.fromisoformat(r["created_at"]).astimezone(db.KST).isoformat(),
+            "channel": r["channel_name"],
+            "reply_to": r["reply_to_id"] if "reply_to_id" in keys else None,
+            "thread": r["thread_id"] if "thread_id" in keys else None,
+            "files": len(json.loads(r["attachments"])) if
+                     ("attachments" in keys and r["attachments"]) else 0,
+            "guild_id": r["guild_id"],
+            "channel_id": r["channel_id"],
+        })
+    return out
+
+
+async def api_channels(request):
+    conn = db.connect()
+    try:
+        return JSONResponse([dict(c) for c in db.list_channels(conn)])
+    finally:
+        conn.close()
+
+
+async def api_conversation(request):
+    q = request.query_params
+    channel, date, until = q.get("channel", ""), q.get("date", ""), q.get("until", "")
+    for d in (date, until):
+        if d and not db.valid_date(d):
+            return JSONResponse({"error": f"날짜 형식이 잘못됐습니다: {d}"}, 400)
+    if not (channel and date):
+        return JSONResponse({"error": "채널과 날짜가 필요합니다."}, 400)
+    if until and until < date:
+        return JSONResponse({"error": "끝 날짜가 시작 날짜보다 앞섭니다."}, 400)
+    conn = db.connect()
+    try:
+        rows = db.get_conversation(conn, channel, date, until or None)
+    finally:
+        conn.close()
+    return JSONResponse({"messages": _rows_to_json(rows)})
+
+
+async def api_search(request):
+    q = request.query_params
+    if not q.get("q"):
+        return JSONResponse({"messages": []})
+    conn = db.connect()
+    try:
+        rows = db.search_messages(
+            conn, q["q"], q.get("channel") or None, q.get("since") or None,
+            q.get("until") or None, min(int(q.get("limit", 200)), 500),
+        )
+    finally:
+        conn.close()
+    return JSONResponse({"messages": _rows_to_json(rows)})
+
+
+async def api_days(request):
+    q = request.query_params
+    conn = db.connect()
+    try:
+        rows = db.day_counts(conn, q.get("channel") or None, min(int(q.get("days", 14)), 120))
+    finally:
+        conn.close()
+    return JSONResponse([{"date": d, "count": n} for d, n in rows])
+
+
+# --- 수집 관리 (서버 관리 권한자만) ------------------------------------------
+
+def _manager_ok():
+    acct = primary_account()
+    if not acct:
+        return False, "에이전트 계정을 먼저 연결하세요."
+    conn = db.connect()
+    try:
+        row = db.link_by_identity(conn, acct["identity"])
+    finally:
+        conn.close()
+    if not row:
+        return False, "디스코드 연동을 먼저 하세요."
+    if not row["is_manager"]:
+        return False, "서버 관리 권한이 필요합니다."
+    return True, None
+
+
+async def api_guild_channels(request):
+    b = bot_bridge()
+    if not b:
+        return JSONResponse({"error": "봇이 실행 중이 아닙니다. start.bat 으로 실행하세요."}, 503)
+    try:
+        return JSONResponse(await run_in_threadpool(b.guild_channels))
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, 503)
+
+
+async def api_collect(request):
+    ok, why = _manager_ok()
+    if not ok:
+        return JSONResponse({"ok": False, "error": why}, 403)
+    b = bot_bridge()
+    if not b:
+        return JSONResponse({"ok": False, "error": "봇이 실행 중이 아닙니다."}, 503)
+    body = await request.json()
+    cid, on = body.get("channel_id", ""), bool(body.get("on"))
+    try:
+        if on:
+            name = await run_in_threadpool(
+                b.start_collect, cid, bool(body.get("notice", True)))
+            return JSONResponse({"ok": True, "message": f"#{name} 수집 시작"})
+        await run_in_threadpool(b.stop_collect, cid)
+        return JSONResponse({"ok": True, "message": "수집 중지"})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, 400)
+
+
+async def api_backfill(request):
+    ok, why = _manager_ok()
+    if not ok:
+        return JSONResponse({"ok": False, "error": why}, 403)
+    b = bot_bridge()
+    if not b:
+        return JSONResponse({"ok": False, "error": "봇이 실행 중이 아닙니다."}, 503)
+    body = await request.json()
+    cid = body.get("channel_id", "")
+    since, until, days = body.get("since", ""), body.get("until", ""), body.get("days")
+    for d in (since, until):
+        if d and not db.valid_date(d):
+            return JSONResponse({"ok": False, "error": f"날짜 형식이 잘못됐습니다: {d}"}, 400)
+    if since and until and until < since:
+        return JSONResponse({"ok": False, "error": "끝 날짜가 시작 날짜보다 앞섭니다."}, 400)
+
+    after = before = None
+    if since:
+        after = datetime.fromisoformat(db.kst_day_range(since)[0])
+        before = datetime.fromisoformat(db.kst_day_range(until)[1]) if until else None
+        span = f"{since}~{until or '오늘'}"
+    else:
+        days = int(days or 90)
+        span = f"최근 {days}일"
+
+    job_id = uuid.uuid4().hex[:12]
+    jobs[job_id] = {"count": 0, "done": False, "ok": False, "span": span, "lines": []}
+
+    def work():
+        try:
+            n = b.run_backfill(cid, after, before, days if not since else None,
+                               jobs[job_id])
+            jobs[job_id].update(count=n, ok=True)
+        except Exception as e:
+            jobs[job_id]["lines"].append(str(e))
+        jobs[job_id]["done"] = True
+
+    threading.Thread(target=work, daemon=True).start()
+    return JSONResponse({"ok": True, "id": job_id, "span": span})
+
+
+async def api_optout(request):
+    """내 수집 거부 상태. 디스코드 연동이 돼 있어야 누구인지 안다."""
+    acct = primary_account()
+    conn = db.connect()
+    try:
+        row = db.link_by_identity(conn, acct["identity"]) if acct else None
+        if not row:
+            return JSONResponse({"ok": False, "error": "디스코드 연동을 먼저 하세요."}, 400)
+        if request.method == "GET":
+            return JSONResponse({"ok": True, "opted_out": db.is_opted_out(conn, row["user_id"])})
+        body = await request.json()
+        if body.get("out"):
+            n = db.opt_out(conn, row["user_id"])
+            return JSONResponse({"ok": True, "opted_out": True,
+                                 "message": f"제외했습니다. 저장된 {n}건도 조회에서 빠집니다."})
+        db.opt_in(conn, row["user_id"])
+        return JSONResponse({"ok": True, "opted_out": False,
+                             "message": "앞으로의 메시지부터 다시 수집합니다."})
+    finally:
+        conn.close()
 
 
 async def api_leaderboard(request):
     days = request.query_params.get("days", "7")
+    channel = request.query_params.get("channel") or None
     since = None
     if days.isdigit():
-        from datetime import datetime, timedelta
-
         since = (datetime.now(db.KST).date() - timedelta(days=int(days) - 1)).isoformat()
     conn = db.connect()
     try:
-        rows = db.leaderboard(conn, since)
-        channels = [dict(c) for c in db.list_channels(conn)]
+        return JSONResponse({"rows": db.leaderboard(conn, since, channel), "since": since})
     finally:
         conn.close()
-    return JSONResponse({"rows": rows, "channels": len(channels), "since": since})
-
-
-PAGE = """<!doctype html><html lang="ko"><meta charset="utf-8">
-<title>세팅 콘솔</title>
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<style>
- :root{color-scheme:light dark;--line:#8883;--dim:#888}
- body{font:16px/1.6 system-ui,'Malgun Gothic',sans-serif;max-width:680px;margin:36px auto;padding:0 20px}
- h1{font-size:22px;margin:0 0 4px} h2{font-size:15px;margin:34px 0 8px;color:var(--dim);
-    text-transform:uppercase;letter-spacing:.06em}
- p.sub{color:var(--dim);margin:0 0 8px}
- .card{border:1px solid var(--line);border-radius:12px;padding:16px;margin:10px 0;display:flex;
-       align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
- .who{font-weight:600} .meta{color:var(--dim);font-size:13px}
- .ok{color:#059669;font-size:13px;font-weight:600}
- .warn{color:#d97706;font-size:13px;font-weight:600}
- button{font:inherit;padding:10px 18px;border-radius:10px;border:0;background:#4f46e5;
-        color:#fff;cursor:pointer} button:hover{background:#4338ca}
- button.ghost{background:transparent;color:var(--dim);border:1px solid var(--line);
-              padding:6px 12px;font-size:14px}
- input,select{font:inherit;padding:9px 12px;border-radius:9px;border:1px solid var(--line);
-        background:transparent;color:inherit}
- input[type=text]{min-width:150px}
- #log{white-space:pre-wrap;background:#8881;border-radius:10px;padding:14px;margin-top:12px;
-      font:13px ui-monospace,monospace;max-height:240px;overflow:auto;display:none}
- a.big{display:inline-block;margin-top:10px;padding:10px 18px;background:#059669;color:#fff;
-       border-radius:10px;text-decoration:none}
- a.plain{color:#4f46e5}
- .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-</style>
-<h1>세팅 콘솔</h1>
-<p class="sub">여기서 전부 끝납니다. 순서대로 하시면 됩니다.
- · <a class="plain" href="/leaderboard">리더보드</a></p>
-
-<h2>1 · 에이전트 계정</h2>
-<div id="accounts"></div>
-<div id="add"></div>
-
-<h2>2 · 디스코드 연동</h2>
-<div class="card">
-  <div><div class="who">연동 코드 입력</div>
-  <div class="meta">디스코드에서 <b>/시작</b> 을 치면 나오는 6자리 코드</div></div>
-  <div class="row">
-    <input type="text" id="code" placeholder="ABC123" maxlength="6" autocomplete="off">
-    <button onclick="pair()">연동</button>
-  </div>
-</div>
-<div id="pairmsg" class="meta"></div>
-
-<h2>3 · MCP 연결</h2>
-<div class="card">
-  <div><div class="who">대상 계정</div><div class="meta" id="mcpnote">—</div></div>
-  <select id="mcpacct" onchange="loadMcp()"></select>
-</div>
-<div id="mcplist"></div>
-<div class="card">
-  <div><div class="who">직접 추가</div><div class="meta">목록에 없는 MCP 서버</div></div>
-  <div class="row">
-    <input type="text" id="mname" placeholder="이름" maxlength="64">
-    <input type="text" id="murl" placeholder="https://...">
-    <button onclick="addMcp(document.getElementById('mname').value,
-                            document.getElementById('murl').value)">추가</button>
-  </div>
-</div>
-<div id="log"></div>
-<script>
-const AG = __AGENTS__, CATALOG = __MCP__, PRESET = __CODE__;
-const $ = id => document.getElementById(id);
-let polling = null, ACCTS = [];
-
-function card(html, ...els){ const d=document.createElement('div'); d.className='card';
-  d.innerHTML=html; const w=document.createElement('div'); w.className='row';
-  els.forEach(e=>w.appendChild(e)); d.appendChild(w); return d; }
-function btn(text, fn, ghost){ const b=document.createElement('button');
-  b.textContent=text; b.onclick=fn; if(ghost) b.className='ghost'; return b; }
-function esc(s){ const d=document.createElement('div'); d.textContent=s??''; return d.innerHTML; }
-
-async function refresh(){
-  ACCTS = await (await fetch('/api/accounts')).json();
-  const box=$('accounts'); box.textContent='';
-  if(!ACCTS.length) box.appendChild(card('<div class="meta">등록된 계정이 없습니다. 아래에서 연결하세요.</div>'));
-  for(const a of ACCTS){
-    const state = a.linked ? '<span class="ok">디스코드 연동됨</span>'
-                           : '<span class="warn">디스코드 미연동</span>';
-    box.appendChild(card('<div><div class="who">'+esc(a.identity)+'</div>'+
-      '<div class="meta">'+esc(AG[a.agent]||a.agent)+' · '+state+'</div></div>',
-      btn('연결 해제', ()=>unlink(a.home), true)));
-  }
-  const add=$('add'); add.textContent='';
-  for(const [k,v] of Object.entries(AG))
-    add.appendChild(card('<div><div class="who">'+esc(v)+' 계정 추가</div>'+
-      '<div class="meta">브라우저 로그인만 하면 됩니다</div></div>', btn('연결', ()=>link(k))));
-
-  const sel=$('mcpacct'); sel.textContent='';
-  const usable = ACCTS.filter(a=>a.mcp_capable);
-  for(const a of usable){ const o=document.createElement('option');
-    o.value=a.home; o.textContent=a.identity; sel.appendChild(o); }
-  $('mcpnote').textContent = usable.length ? 'Claude 계정에 MCP를 붙입니다'
-                                           : 'Claude 계정을 먼저 연결하세요';
-  loadMcp();
-}
-
-async function link(agent){
-  const log=$('log'); log.style.display='block'; log.textContent='로그인 창을 여는 중...';
-  const {id} = await (await fetch('/api/link/'+agent,{method:'POST'})).json();
-  clearInterval(polling); let shown=false;
-  polling = setInterval(async ()=>{
-    const j = await (await fetch('/api/job/'+id)).json();
-    log.textContent = j.lines.join('\\n') || '진행 중...';
-    if(j.url && !shown){ shown=true; const a=document.createElement('a');
-      a.className='big'; a.href=j.url; a.target='_blank';
-      a.textContent='브라우저가 안 열렸다면 여기를 누르세요';
-      log.appendChild(document.createElement('br')); log.appendChild(a); }
-    if(j.done){ clearInterval(polling);
-      log.appendChild(document.createTextNode(
-        j.ok ? '\\n\\n연결 완료: '+j.identity : '\\n\\n연결에 실패했습니다.'));
-      refresh(); }
-    log.scrollTop = log.scrollHeight;
-  }, 700);
-}
-
-async function unlink(home){
-  if(!confirm('이 계정 연결을 해제할까요?')) return;
-  await fetch('/api/unlink',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({home})});
-  refresh();
-}
-
-async function pair(){
-  const code=$('code').value.trim(), msg=$('pairmsg');
-  if(!ACCTS.length){ msg.innerHTML='<span class="warn">먼저 1번에서 에이전트 계정을 연결하세요.</span>'; return; }
-  if(!code){ msg.innerHTML='<span class="warn">코드를 입력하세요.</span>'; return; }
-  msg.textContent='연동 중...';
-  const home = ($('mcpacct').value) || ACCTS[0].home;
-  const r = await (await fetch('/api/discord-link',{method:'POST',
-    headers:{'Content-Type':'application/json'}, body:JSON.stringify({code, home})})).json();
-  msg.innerHTML = r.ok ? '<span class="ok">'+esc(r.user_name)+' 님으로 연동됐습니다.</span>'
-                       : '<span class="warn">'+esc(r.error||'연동 실패')+'</span>';
-  if(r.ok){ $('code').value=''; refresh(); }
-}
-
-async function loadMcp(){
-  const home=$('mcpacct').value, box=$('mcplist'); box.textContent='';
-  if(!home){ return; }
-  const r = await (await fetch('/api/mcp?home='+encodeURIComponent(home))).json();
-  const have = new Set(r.servers||[]);
-  for(const [k,v] of Object.entries(CATALOG)){
-    const on = have.has(k);
-    box.appendChild(card('<div><div class="who">'+esc(v.label)+
-      (on?' <span class="ok">연결됨</span>':'')+'</div>'+
-      '<div class="meta">'+esc(v.url)+'</div></div>',
-      on ? btn('해제', ()=>removeMcp(k), true) : btn('연결', ()=>addMcp(k, v.url))));
-  }
-  for(const name of (r.servers||[]))
-    if(!CATALOG[name] && name!=='discord-collector')
-      box.appendChild(card('<div><div class="who">'+esc(name)+'</div>'+
-        '<div class="meta">직접 추가함</div></div>', btn('해제', ()=>removeMcp(name), true)));
-}
-
-async function addMcp(name, url){
-  const home=$('mcpacct').value, log=$('log');
-  if(!home){ alert('Claude 계정을 먼저 연결하세요.'); return; }
-  log.style.display='block'; log.textContent=name+' 연결 중...';
-  const r = await (await fetch('/api/mcp/add',{method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({home,name,url})})).json();
-  log.textContent = (r.output||'') + (r.ok ? '\\n\\n연결됨. 처음 쓸 때 브라우저에서 로그인하라고 나올 수 있습니다.'
-                                           : '\\n\\n실패했습니다.');
-  loadMcp();
-}
-
-async function removeMcp(name){
-  const home=$('mcpacct').value, log=$('log');
-  log.style.display='block'; log.textContent=name+' 해제 중...';
-  const r = await (await fetch('/api/mcp/remove',{method:'POST',
-    headers:{'Content-Type':'application/json'}, body:JSON.stringify({home,name})})).json();
-  log.textContent = r.output || (r.ok?'해제됨':'실패');
-  loadMcp();
-}
-
-if(PRESET) $('code').value = PRESET;
-refresh();
-</script>"""
-
-
-BOARD = """<!doctype html><html lang="ko"><meta charset="utf-8">
-<title>리더보드</title>
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<style>
- :root{color-scheme:light dark;--line:#8883;--dim:#888}
- body{font:16px/1.6 system-ui,'Malgun Gothic',sans-serif;max-width:680px;margin:36px auto;padding:0 20px}
- h1{font-size:22px;margin:0 0 4px} p.sub{color:var(--dim);margin:0 0 20px}
- a.plain{color:#4f46e5}
- button{font:inherit;padding:8px 14px;border-radius:9px;border:1px solid var(--line);
-        background:transparent;color:inherit;cursor:pointer;margin-right:6px}
- button.on{background:#4f46e5;color:#fff;border-color:#4f46e5}
- table{width:100%;border-collapse:collapse;margin-top:18px}
- th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line)}
- th{font-size:13px;color:var(--dim);font-weight:600}
- td.n{text-align:right;font-variant-numeric:tabular-nums}
- .rank{color:var(--dim);width:34px}
- .bar{height:6px;background:#4f46e5;border-radius:3px;margin-top:4px}
- .empty{color:var(--dim);padding:24px 0}
-</style>
-<h1>리더보드</h1>
-<p class="sub">수집된 채널 기준 발언 집계 · <a class="plain" href="/">세팅 콘솔</a></p>
-<div id="tabs"></div>
-<div id="out"></div>
-<script>
-const $ = id => document.getElementById(id);
-const PERIODS = [['7','최근 7일'],['30','최근 30일'],['all','전체']];
-let cur = '7';
-function esc(s){ const d=document.createElement('div'); d.textContent=s??''; return d.innerHTML; }
-
-function tabs(){ const t=$('tabs'); t.textContent='';
-  for(const [k,label] of PERIODS){ const b=document.createElement('button');
-    b.textContent=label; if(k===cur) b.className='on';
-    b.onclick=()=>{cur=k; tabs(); load();}; t.appendChild(b); } }
-
-async function load(){
-  const r = await (await fetch('/api/leaderboard?days='+cur)).json();
-  const out=$('out');
-  if(!r.rows.length){ out.innerHTML='<div class="empty">아직 수집된 대화가 없습니다. '+
-    '디스코드에서 <b>/수집시작</b> 을 실행하세요.</div>'; return; }
-  const max = r.rows[0].messages;
-  out.innerHTML = '<table><thead><tr><th class="rank">#</th><th>이름</th>'+
-    '<th class="n">메시지</th><th class="n">활동일</th><th class="n">채널</th></tr></thead><tbody>'+
-    r.rows.map((x,i)=>'<tr><td class="rank">'+(i+1)+'</td><td>'+esc(x.author)+
-      '<div class="bar" style="width:'+Math.max(2,Math.round(x.messages/max*100))+'%"></div></td>'+
-      '<td class="n">'+x.messages+'</td><td class="n">'+x.days+'</td>'+
-      '<td class="n">'+x.channels+'</td></tr>').join('')+'</tbody></table>';
-}
-tabs(); load();
-</script>"""
 
 
 app = Starlette(routes=[
     Route("/", page),
-    Route("/leaderboard", leaderboard_page),
+    Route("/leaderboard", page),
+    Route("/api/me", api_me),
     Route("/api/accounts", api_accounts),
     Route("/api/link/{agent}", api_link, methods=["POST"]),
     Route("/api/job/{job_id}", api_job),
@@ -554,6 +579,14 @@ app = Starlette(routes=[
     Route("/api/mcp", api_mcp_list),
     Route("/api/mcp/add", api_mcp_add, methods=["POST"]),
     Route("/api/mcp/remove", api_mcp_remove, methods=["POST"]),
+    Route("/api/channels", api_channels),
+    Route("/api/conversation", api_conversation),
+    Route("/api/search", api_search),
+    Route("/api/days", api_days),
+    Route("/api/guild-channels", api_guild_channels),
+    Route("/api/collect", api_collect, methods=["POST"]),
+    Route("/api/backfill", api_backfill, methods=["POST"]),
+    Route("/api/optout", api_optout, methods=["GET", "POST"]),
     Route("/api/leaderboard", api_leaderboard),
 ])
 
