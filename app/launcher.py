@@ -50,6 +50,8 @@ MASCOT_DIRS = (PROJECT / "data" / "mascot", ROOT / "mascot")
 SESSION = PROJECT / "data" / "session.json"
 ACCOUNTS = db.ACCOUNTS_PATH
 PORT = int(os.getenv("LAUNCHER_PORT", "8787"))
+# 컨테이너에선 0.0.0.0 이어야 앞단 프록시가 닿는다. 기본은 이 PC 안에서만.
+HOST = os.getenv("LAUNCHER_HOST", "127.0.0.1")
 SERVER_URL = remote.SERVER_URL
 
 AGENTS = {
@@ -882,4 +884,4 @@ app = Starlette(lifespan=MCP_APP.router.lifespan_context, routes=[
 
 if __name__ == "__main__":
     threading.Timer(1.0, lambda: webbrowser.open("http://127.0.0.1:%d" % PORT)).start()
-    uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="warning")
+    uvicorn.run(app, host=HOST, port=PORT, log_level="warning")

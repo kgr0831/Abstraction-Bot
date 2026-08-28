@@ -17,12 +17,12 @@ import launcher  # noqa: E402
 
 def serve_launcher():
     uvicorn.run(
-        launcher.app, host="127.0.0.1", port=launcher.PORT, log_level="warning"
+        launcher.app, host=launcher.HOST, port=launcher.PORT, log_level="warning"
     )
 
 
 if __name__ == "__main__":
     threading.Thread(target=serve_launcher, daemon=True).start()
-    print(f"계정 등록기  http://127.0.0.1:{launcher.PORT}")
+    print(f"콘솔  http://127.0.0.1:{launcher.PORT}  (bind {launcher.HOST})")
     print("종료하려면 이 창을 닫거나 Ctrl+C\n")
     bot.main()

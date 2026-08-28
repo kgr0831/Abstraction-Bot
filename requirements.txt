@@ -1,0 +1,6 @@
+# Pterodactyl(DisHost) 등 pip 만 쓰는 곳을 위한 목록. pyproject.toml 과 같은 내용.
+anthropic>=1.0
+discord.py>=2.4
+mcp>=1.2
+openai>=1.0
+python-dotenv>=1.0
