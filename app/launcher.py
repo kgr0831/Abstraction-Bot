@@ -32,7 +32,7 @@ import uvicorn
 from dotenv import load_dotenv
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
-from starlette.responses import HTMLResponse, JSONResponse
+from starlette.responses import FileResponse, HTMLResponse, JSONResponse
 from starlette.routing import Route
 
 import db
@@ -42,6 +42,9 @@ load_dotenv()
 ROOT = Path(__file__).resolve().parent          # app/
 PROJECT = ROOT.parent                          # 저장소 루트
 AGENTS_DIR = PROJECT / "data" / "agents"
+# 로컬 전용(gitignore) 먼저, 없으면 저장소에 넣어 배포하는 쪽
+MASCOT_DIRS = (PROJECT / "data" / "mascot", ROOT / "mascot")
+SESSION = PROJECT / "data" / "session.json"
 ACCOUNTS = db.ACCOUNTS_PATH
 PORT = int(os.getenv("LAUNCHER_PORT", "8787"))
 SERVER_URL = os.getenv("SERVER_URL", "http://127.0.0.1:%d" % PORT)
@@ -147,6 +150,38 @@ def post_json(url, payload):
             return e.code, {"ok": False, "error": str(e)}
     except (urllib.error.URLError, OSError, ValueError) as e:
         return 502, {"ok": False, "error": f"서버({SERVER_URL})에 연결하지 못했습니다: {e}"}
+
+
+def load_session():
+    """마지막 연동 정보. 봇 DB 가 멀면 여기서 UI 를 복원한다 (표시 전용)."""
+    if not SESSION.exists():
+        return {}
+    try:
+        return json.loads(SESSION.read_text("utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def save_session(**kw):
+    SESSION.parent.mkdir(parents=True, exist_ok=True)
+    SESSION.write_text(json.dumps({**load_session(), **kw}, ensure_ascii=False, indent=2), "utf-8")
+
+
+def state_rev():
+    """UI 가 이걸 폴링해서 바뀐 것만 다시 그린다. 계정·연동·채널·메시지·봇상태."""
+    try:
+        a = ACCOUNTS.stat().st_mtime_ns
+    except OSError:
+        a = 0
+    conn = db.connect()
+    try:
+        st = db.stats(conn)
+        links = len(db.linked_identities(conn))
+    finally:
+        conn.close()
+    b = bot_bridge()
+    return "%d.%d.%d.%d.%d" % (a, links, st["channels"], st["messages"],
+                              int(bool(b and b.ready())))
 
 
 _icon = None
@@ -266,7 +301,50 @@ async def api_me(request):
         if row:
             out.update(linked=True, user_name=row["user_name"],
                        is_manager=bool(row["is_manager"]))
+            save_session(identity=acct["identity"], agent=acct["agent"],
+                         user_name=row["user_name"], is_manager=bool(row["is_manager"]))
+    if not out["linked"]:
+        # 서버 DB 가 아직/이미 없을 때 마지막 연동을 화면에 복원한다.
+        # 실제 권한 판정은 항상 DB 로 한다 (_manager_ok).
+        sess = load_session()
+        if sess.get("identity") and acct and sess["identity"] == acct["identity"]:
+            out.update(user_name=sess.get("user_name"), stale=True)
+    out["rev"] = await run_in_threadpool(state_rev)
+    out["mascot"] = mascot_names()
     return JSONResponse(out)
+
+
+async def api_state(request):
+    """폴링 전용 — 가볍게 유지한다 (아이콘 조회 같은 건 하지 않는다)."""
+    b = bot_bridge()
+    return JSONResponse({"rev": await run_in_threadpool(state_rev),
+                         "bot_ready": bool(b and b.ready())})
+
+
+MASCOT_STATES = ("idle", "working", "happy", "sleep")
+MASCOT_EXT = (".png", ".webp", ".gif", ".jpg", ".svg")
+
+
+def mascot_file(name):
+    for d in MASCOT_DIRS:
+        for ext in MASCOT_EXT:
+            f = d / (name + ext)
+            if f.exists():
+                return f
+    return None
+
+
+def mascot_names():
+    """넣어둔 커스텀 이미지 목록. 없으면 콘솔이 내장 SVG 를 쓴다."""
+    return [st for st in MASCOT_STATES if mascot_file(st) or mascot_file("hebi")]
+
+
+async def mascot(request):
+    st = request.path_params["state"]
+    if st not in MASCOT_STATES:
+        return JSONResponse({"error": "unknown state"}, 404)
+    f = mascot_file(st) or mascot_file("hebi")
+    return FileResponse(f) if f else JSONResponse({"error": "no asset"}, 404)
 
 
 async def api_accounts(request):
@@ -602,6 +680,8 @@ app = Starlette(routes=[
     Route("/", page),
     Route("/leaderboard", page),
     Route("/api/me", api_me),
+    Route("/api/state", api_state),
+    Route("/mascot/{state}", mascot),
     Route("/api/accounts", api_accounts),
     Route("/api/link/{agent}", api_link, methods=["POST"]),
     Route("/api/job/{job_id}", api_job),

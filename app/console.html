@@ -2,7 +2,7 @@
 <title>Abstraction 콘솔</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-/* orca 와 같은 토큰 (shadcn/ui neutral). 값은 orca 리소스에서 그대로 가져왔다. */
+/* 베이스 토큰은 orca 와 동일 (shadcn/ui neutral). 여기에 마스코트용 포인트 색만 얹는다. */
 :root{
   --background:#fff; --foreground:#0a0a0a;
   --card:#fff; --card-foreground:#0a0a0a;
@@ -15,9 +15,11 @@
   --sidebar:#fafafa; --sidebar-foreground:#0a0a0a; --sidebar-border:#e5e5e5;
   --sidebar-accent:#f5f5f5; --sidebar-accent-foreground:#171717;
   --ok:#00784a; --warn:#a35200;
+  /* Hebi — 뱀(へび) 에서 딴 포인트 색 */
+  --hebi:#10b981; --hebi-2:#a7f3d0; --hebi-deep:#047857; --hebi-blush:#fb7185;
+  --gold:#d4a017; --silver:#8e9099; --bronze:#a9713b;
   --radius:.625rem;
   --radius-sm:calc(var(--radius) * .6); --radius-md:calc(var(--radius) * .8);
-  --radius-xl:calc(var(--radius) * 1.4);
   --sidebar-width:239px;
   color-scheme:light;
 }
@@ -33,8 +35,11 @@
   --sidebar:#171717; --sidebar-foreground:#fafafa; --sidebar-border:#ffffff12;
   --sidebar-accent:#262626; --sidebar-accent-foreground:#fafafa;
   --ok:#00d492; --warn:#ffb900;
+  --hebi:#34d399; --hebi-2:#065f46; --hebi-deep:#6ee7b7; --hebi-blush:#fb7185;
+  --gold:#facc15; --silver:#cbd5e1; --bronze:#d99a5b;
   color-scheme:dark;
 }}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
 *{box-sizing:border-box;margin:0}
 html,body{height:100%}
@@ -61,32 +66,54 @@ body{background:var(--background);color:var(--foreground);
 .navlink:hover{background:var(--sidebar-accent);color:var(--sidebar-accent-foreground)}
 .navlink.on{background:var(--sidebar-accent);color:var(--sidebar-accent-foreground);font-weight:600}
 .navlink svg{width:16px;height:16px;flex:0 0 16px;opacity:.85}
-.sidefoot{margin-top:auto;border-top:1px solid var(--sidebar-border);padding:11px 9px 2px;
-  font-size:12px;color:var(--muted-foreground);line-height:1.5}
+
+/* Hebi */
+.hebi{margin-top:auto;padding-top:10px}
+.bubble{position:relative;background:var(--card);border:1px solid var(--border);
+  border-radius:var(--radius);padding:8px 11px;font-size:12px;line-height:1.45;
+  color:var(--foreground);margin-bottom:9px;min-height:34px}
+.bubble:after{content:"";position:absolute;left:26px;bottom:-6px;width:10px;height:10px;
+  background:var(--card);border-right:1px solid var(--border);border-bottom:1px solid var(--border);
+  transform:rotate(45deg)}
+.hebiwrap{display:flex;align-items:flex-end;gap:9px}
+.hebiart{width:58px;height:58px;flex:0 0 58px;position:relative}
+.hebiart svg,.hebiart img{width:100%;height:100%;display:block;object-fit:contain}
+.hebiart.bob{animation:bob 3.4s ease-in-out infinite}
+.hebiart.spin:before{content:"";position:absolute;inset:-4px;border-radius:50%;
+  border:2px solid transparent;border-top-color:var(--hebi);animation:spin .9s linear infinite}
+@keyframes bob{0%,100%{transform:translateY(0) rotate(-1.5deg)}50%{transform:translateY(-4px) rotate(1.5deg)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+.stat{font-size:11.5px;color:var(--muted-foreground);line-height:1.5;flex:1;min-width:0;
+  overflow:hidden;text-overflow:ellipsis}
 .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;
   background:var(--muted-foreground);vertical-align:1px}
-.dot.live{background:var(--ok)} .dot.off{background:var(--warn)}
+.dot.live{background:var(--ok);animation:pulse 2s ease-in-out infinite}
+.dot.off{background:var(--warn)}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 55%,transparent)}
+  70%{box-shadow:0 0 0 5px transparent}}
 
 /* 본문 */
 .main{flex:1;min-width:0;padding:34px 40px 72px;max-width:940px}
-.head{margin-bottom:22px}
+.head{margin-bottom:22px;display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
 .head h1{font-size:21px;font-weight:650;letter-spacing:-.02em}
 .head p{color:var(--muted-foreground);font-size:13.5px;margin-top:3px}
 h2{font-size:12px;font-weight:600;color:var(--muted-foreground);text-transform:uppercase;
   letter-spacing:.07em;margin:26px 0 9px}
 h2:first-child{margin-top:0}
 
-/* 카드 */
 .card{background:var(--card);color:var(--card-foreground);border:1px solid var(--border);
   border-radius:var(--radius);padding:13px 15px;margin-bottom:8px;display:flex;
-  align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  transition:border-color .14s,transform .14s}
+.card:hover{border-color:color-mix(in srgb,var(--hebi) 40%,var(--border))}
+.card.new{animation:slidein .26s ease-out}
+@keyframes slidein{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
 .card>div:first-child{min-width:0;flex:1}
 .who{font-weight:550;font-size:14px;letter-spacing:-.005em}
 .meta{color:var(--muted-foreground);font-size:12.5px;margin-top:1px}
 .ok{color:var(--ok);font-weight:600} .warn{color:var(--warn);font-weight:600}
 .row{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
 
-/* 배지 */
 .badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;
   padding:1px 7px;border-radius:9999px;border:1px solid var(--border);
   background:var(--secondary);color:var(--secondary-foreground);vertical-align:1px}
@@ -95,10 +122,10 @@ h2:first-child{margin-top:0}
 .badge.y{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 35%,transparent);
   background:color-mix(in srgb,var(--warn) 10%,transparent)}
 
-/* 컨트롤 */
 button{font:inherit;font-weight:550;font-size:13.5px;padding:7px 14px;border:1px solid transparent;
   border-radius:var(--radius-md);background:var(--primary);color:var(--primary-foreground);
-  cursor:pointer;transition:opacity .12s,background .12s;white-space:nowrap}
+  cursor:pointer;transition:opacity .12s,background .12s;white-space:nowrap;
+  display:inline-flex;align-items:center;gap:7px}
 button:hover{opacity:.88}
 button:disabled{opacity:.45;cursor:not-allowed}
 button.ghost{background:transparent;color:var(--foreground);border-color:var(--border)}
@@ -108,8 +135,8 @@ button.danger{background:transparent;color:var(--destructive);
 button.danger:hover{background:color-mix(in srgb,var(--destructive) 9%,transparent);opacity:1}
 input,select{font:inherit;font-size:13.5px;padding:6.5px 10px;border-radius:var(--radius-md);
   border:1px solid var(--input);background:var(--background);color:var(--foreground);max-width:100%}
-input:focus,select:focus{outline:2px solid color-mix(in srgb,var(--ring) 55%,transparent);
-  outline-offset:1px;border-color:var(--ring)}
+input:focus,select:focus{outline:2px solid color-mix(in srgb,var(--hebi) 45%,transparent);
+  outline-offset:1px;border-color:var(--hebi)}
 input::placeholder{color:var(--muted-foreground)}
 label.f{font-size:12.5px;color:var(--muted-foreground);display:flex;gap:6px;align-items:center}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
@@ -119,13 +146,30 @@ label.f{font-size:12.5px;color:var(--muted-foreground);display:flex;gap:6px;alig
 .chip:hover{background:var(--accent);color:var(--accent-foreground)}
 .chip.on{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary)}
 
+/* 로딩 */
+.spin{width:14px;height:14px;border:2px solid color-mix(in srgb,currentColor 25%,transparent);
+  border-top-color:currentColor;border-radius:50%;animation:spin .75s linear infinite;
+  display:inline-block;flex:0 0 14px}
+.sk{background:linear-gradient(90deg,var(--muted) 25%,var(--accent) 37%,var(--muted) 63%);
+  background-size:400% 100%;animation:shimmer 1.3s ease infinite;border-radius:var(--radius-sm);
+  height:13px}
+@keyframes shimmer{0%{background-position:100% 0}100%{background-position:0 0}}
+.skcard{border:1px solid var(--border);border-radius:var(--radius);padding:13px 15px;
+  margin-bottom:8px;display:flex;gap:12px;align-items:center}
+.busy{display:flex;align-items:center;gap:9px;color:var(--muted-foreground);
+  font-size:13px;padding:26px 0;justify-content:center}
+.prog{height:5px;border-radius:9999px;background:var(--muted);overflow:hidden;margin-top:8px}
+.prog i{display:block;height:100%;border-radius:9999px;
+  background:linear-gradient(90deg,var(--hebi),var(--hebi-deep));
+  background-size:200% 100%;animation:flow 1.3s linear infinite;width:100%}
+@keyframes flow{to{background-position:-200% 0}}
+
 .log{white-space:pre-wrap;background:var(--muted);border:1px solid var(--border);
   border-radius:var(--radius);padding:11px 13px;margin-top:10px;color:var(--muted-foreground);
   font:12px/1.6 ui-monospace,'Cascadia Mono',Consolas,monospace;max-height:230px;overflow:auto;
   display:none}
-a.big{display:inline-block;margin-top:9px;padding:7px 14px;background:var(--primary);
-  color:var(--primary-foreground);border-radius:var(--radius-md);text-decoration:none;
-  font-size:13.5px;font-weight:550}
+a.big{display:inline-block;margin-top:9px;padding:7px 14px;background:var(--hebi);
+  color:#04241a;border-radius:var(--radius-md);text-decoration:none;font-size:13.5px;font-weight:650}
 .empty{color:var(--muted-foreground);padding:44px 0;text-align:center;font-size:13.5px}
 .banner{border:1px solid color-mix(in srgb,var(--warn) 32%,transparent);
   background:color-mix(in srgb,var(--warn) 8%,transparent);color:var(--warn);
@@ -150,15 +194,14 @@ a.big{display:inline-block;margin-top:9px;padding:7px 14px;background:var(--prim
 .tm{color:var(--muted-foreground);font-size:11px;margin-left:7px;font-weight:400}
 .tx{white-space:pre-wrap;word-break:break-word;font-size:13.5px}
 .tag{display:inline-block;font-size:10.5px;font-weight:600;color:var(--muted-foreground);
-  border:1px solid var(--border);border-radius:var(--radius-xs,4px);padding:0 5px;margin-right:5px;
-  vertical-align:1px}
+  border:1px solid var(--border);border-radius:4px;padding:0 5px;margin-right:5px;vertical-align:1px}
 .jump{float:right;color:var(--muted-foreground);font-size:11px;text-decoration:none;
   opacity:0;transition:opacity .12s}
 .msg:hover .jump{opacity:1}
-mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;
+mark{background:color-mix(in srgb,var(--hebi) 35%,transparent);color:inherit;
   border-radius:3px;padding:0 1px}
 
-/* 표 */
+/* 리더보드 */
 table{width:100%;border-collapse:collapse;border:1px solid var(--border);
   border-radius:var(--radius);overflow:hidden}
 th,td{text-align:left;padding:10px 13px;border-bottom:1px solid var(--border)}
@@ -167,8 +210,13 @@ thead th{font-size:11.5px;font-weight:600;color:var(--muted-foreground);backgrou
 tbody tr:last-child td{border-bottom:0}
 tbody tr:hover{background:var(--accent)}
 td.n{text-align:right;font-variant-numeric:tabular-nums;font-size:13.5px}
-.rank{color:var(--muted-foreground);width:38px;font-variant-numeric:tabular-nums}
-.bar{height:4px;background:var(--primary);border-radius:9999px;margin-top:5px;opacity:.75}
+.rank{width:46px;font-variant-numeric:tabular-nums;color:var(--muted-foreground);font-weight:650}
+.medal{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:9999px;
+  font-size:12px;font-weight:800;color:#1a1a1a}
+.m1{background:var(--gold)} .m2{background:var(--silver)} .m3{background:var(--bronze)}
+.bar{height:5px;background:var(--muted);border-radius:9999px;margin-top:5px;overflow:hidden}
+.bar i{display:block;height:100%;border-radius:9999px;
+  background:linear-gradient(90deg,var(--hebi),var(--hebi-deep));transition:width .5s ease}
 
 @media (max-width:760px){
   .app{flex-direction:column}
@@ -177,7 +225,7 @@ td.n{text-align:right;font-variant-numeric:tabular-nums;font-size:13.5px}
   .brand{padding-bottom:10px}
   .sidebar nav{display:flex;gap:4px;overflow-x:auto}
   .navlink{margin-bottom:0;white-space:nowrap}
-  .sidefoot{margin-top:10px}
+  .hebi{margin-top:10px}
   .main{padding:22px 18px 60px}
 }
 </style>
@@ -189,10 +237,16 @@ td.n{text-align:right;font-variant-numeric:tabular-nums;font-size:13.5px}
     <div><b>Abstraction</b><span>대화 수집 · 정리</span></div>
   </div>
   <nav id="nav"></nav>
-  <div class="sidefoot" id="who">확인 중...</div>
+  <div class="hebi">
+    <div class="bubble" id="say">불러오는 중...</div>
+    <div class="hebiwrap">
+      <div class="hebiart bob" id="hebi"></div>
+      <div class="stat" id="who"></div>
+    </div>
+  </div>
 </aside>
 <main class="main">
-  <div class="head"><h1 id="ttl"></h1><p id="sub"></p></div>
+  <div class="head"><div><h1 id="ttl"></h1><p id="sub"></p></div><div id="headx"></div></div>
   <div id="banner" class="banner"></div>
   <div id="view"></div>
 </main>
@@ -220,10 +274,12 @@ const TABS = [
   ['connect','연결', ICON.connect, '연결', '에이전트 계정과 MCP를 연결합니다. 본인 CLI로만 동작합니다.'],
   ['board','리더보드', ICON.board, '리더보드', '수집된 채널 기준 발언 집계입니다.'],
 ];
-let ME = {}, POLL = null;
+let ME = {}, POLL = null, WATCH = null, REV = null, BUSY = 0;
 
 const today = () => new Date(Date.now()+9*3600e3).toISOString().slice(0,10);
 const ago = n => new Date(Date.now()+9*3600e3-n*86400e3).toISOString().slice(0,10);
+const pref = (k,v) => { try{ return v===undefined ? localStorage.getItem('ab.'+k)
+                                                   : localStorage.setItem('ab.'+k,v); }catch(e){} };
 
 async function api(path, opts){
   const r = await fetch(path, opts);
@@ -234,6 +290,65 @@ async function api(path, opts){
 const post = (p, body) => api(p, {method:'POST', headers:{'Content-Type':'application/json'},
                                  body:JSON.stringify(body)});
 
+/* ---------------- Hebi ----------------
+   실존 버추얼 유튜버의 캐릭터 디자인을 쓰지 않는다. 이름(へび=뱀)만 빌린 오리지널이다.
+   data/mascot/{idle,working,happy,sleep}.png (또는 hebi.png) 를 넣으면 그걸 우선 쓴다. */
+function hebiSVG(state){
+  const E = {
+    idle:  '<circle cx="42" cy="41" r="4.6" fill="#101010"/><circle cx="43.7" cy="39.3" r="1.7" fill="#fff"/>'+
+           '<circle cx="58" cy="41" r="4.6" fill="#101010"/><circle cx="59.7" cy="39.3" r="1.7" fill="#fff"/>',
+    working:'<circle cx="42" cy="41" r="4.6" fill="#101010"/><circle cx="43.9" cy="39.6" r="1.5" fill="#fff"/>'+
+           '<circle cx="58" cy="41" r="4.6" fill="#101010"/><circle cx="59.9" cy="39.6" r="1.5" fill="#fff"/>'+
+           '<path d="M33 31 l7 3M67 31 l-7 3" stroke="#101010" stroke-width="2" stroke-linecap="round"/>',
+    happy: '<path d="M37 43 q5 -7 10 0M53 43 q5 -7 10 0" stroke="#101010" stroke-width="2.6" '+
+           'fill="none" stroke-linecap="round"/>',
+    sleep: '<path d="M37 42 h10M53 42 h10" stroke="#101010" stroke-width="2.4" stroke-linecap="round"/>'+
+           '<text x="72" y="26" font-size="11" fill="var(--muted-foreground)" font-weight="700">z</text>'+
+           '<text x="80" y="17" font-size="8" fill="var(--muted-foreground)" font-weight="700">z</text>',
+  }[state] || '';
+  const M = {
+    idle:  '<path d="M46 51 q4 4 8 0" stroke="#101010" stroke-width="2" fill="none" stroke-linecap="round"/>',
+    working:'<path d="M45 52 h10" stroke="#101010" stroke-width="2" stroke-linecap="round"/>',
+    happy: '<ellipse cx="50" cy="53" rx="6" ry="4.6" fill="#101010"/>'+
+           '<ellipse cx="50" cy="55" rx="3.4" ry="2.4" fill="var(--hebi-blush)"/>',
+    sleep: '<path d="M47 52 q3 2 6 0" stroke="#101010" stroke-width="1.8" fill="none" stroke-linecap="round"/>',
+  }[state] || '';
+  return '<svg viewBox="0 0 100 100" aria-hidden="true">'+
+    '<path d="M28 90 q-10 0 -10 -9 t10 -9 h30 q9 0 9 -8 t-9 -8 h-14" fill="none" '+
+      'stroke="var(--hebi)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>'+
+    '<path d="M28 90 q-10 0 -10 -9 t10 -9 h30" fill="none" stroke="var(--hebi-2)" '+
+      'stroke-width="4" stroke-linecap="round" opacity=".65"/>'+
+    '<path d="M50 17 l-7 10 h14 z" fill="var(--hebi-deep)"/>'+
+    '<ellipse cx="50" cy="41" rx="22" ry="19.5" fill="var(--hebi)"/>'+
+    '<ellipse cx="50" cy="49" rx="13" ry="9" fill="var(--hebi-2)" opacity=".9"/>'+
+    '<ellipse cx="30" cy="48" rx="4.6" ry="2.9" fill="var(--hebi-blush)" opacity=".75"/>'+
+    '<ellipse cx="70" cy="48" rx="4.6" ry="2.9" fill="var(--hebi-blush)" opacity=".75"/>'+
+    E + M +
+    '<path d="M50 58 v6 M50 64 l-3.5 3.5 M50 64 l3.5 3.5" stroke="var(--hebi-blush)" '+
+      'stroke-width="1.8" fill="none" stroke-linecap="round"/>'+
+    '</svg>';
+}
+
+let hebiState = 'idle';
+function hebi(state, line){
+  hebiState = state || hebiState;
+  const box = $('#hebi');
+  box.className = 'hebiart ' + (hebiState==='working' ? 'spin' : 'bob');
+  if((ME.mascot||[]).includes(hebiState))
+    box.innerHTML = '<img alt="Hebi" src="/mascot/'+hebiState+'?v='+encodeURIComponent(hebiState)+'">';
+  else box.innerHTML = hebiSVG(hebiState);
+  if(line) $('#say').textContent = line;
+}
+function say(line, state){ hebi(state, line); }
+
+function idleLine(){
+  if(!ME.bot_ready) return '봇이 자는 중이야... start.bat 좀 눌러줘!';
+  if(!ME.account)   return '먼저 에이전트 계정부터 연결하자!';
+  if(!ME.linked)    return '디스코드 연동만 하면 준비 끝이야!';
+  return '준비 완료! 뭐부터 볼까?';
+}
+
+/* ---------------- 부팅 · 실시간 ---------------- */
 function nav(){
   const cur = (location.hash||'#chat').slice(1);
   const box = $('#nav'); box.textContent='';
@@ -246,19 +361,21 @@ function nav(){
   return cur;
 }
 
-async function boot(){
+async function boot(rerender){
   ME = await api('/api/me');
+  REV = ME.rev;
   const rows = [];
   rows.push('<span class="dot '+(ME.bot_ready?'live':'off')+'"></span>'+
             (ME.bot_ready?'봇 실행 중':'봇 꺼짐'));
   rows.push(ME.linked ? '<span class="ok">'+esc(ME.user_name)+'</span> 연동됨'
-                      : '<span class="warn">디스코드 미연동</span>');
+            : (ME.user_name ? '<span class="warn">'+esc(ME.user_name)+'</span> 재연동 필요'
+                            : '<span class="warn">미연동</span>'));
   if(ME.account) rows.push(esc(ME.account.identity));
   $('#who').innerHTML = rows.join('<br>');
-  if(ME.icon){                                   // 봇 아이콘을 로고와 파비콘으로
+  if(ME.icon){
     const g = $('#logo');
     if(!g.classList.contains('img')){
-      const i = el('img'); i.src = ME.icon; i.alt = '';
+      const i = el('img'); i.src = ME.icon; i.alt='';
       g.textContent=''; g.appendChild(i); g.classList.add('img');
       const f = el('link'); f.rel='icon'; f.href=ME.icon; document.head.appendChild(f);
     }
@@ -267,16 +384,44 @@ async function boot(){
   if(!ME.bot_ready){ b.style.display='block';
     b.textContent = '봇이 실행 중이 아닙니다. start.bat 으로 실행하면 수집 관리와 대화 수집이 동작합니다.'; }
   else b.style.display='none';
-  route();
+  if(!BUSY) hebi(ME.bot_ready?'idle':'sleep', idleLine());
+  if(rerender !== false) route();
+  watch();
+}
+
+/* 서버 상태가 바뀌면 (연동·계정·채널·새 메시지·봇 기동) 알아서 다시 그린다 */
+async function tick(){
+  const s = await api('/api/state');
+  if(s.rev && s.rev !== REV){ REV = s.rev; await boot(); }
+}
+function watch(){
+  if(WATCH) return;
+  WATCH = setInterval(()=>{ if(!document.hidden) tick(); }, 2500);
+  // 숨어 있는 동안은 쉬므로, 다시 보이면 기다리지 말고 바로 따라잡는다
+  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) tick(); });
 }
 
 function route(){
   clearInterval(POLL); POLL=null;
   const cur = nav();
-  $('#view').textContent='';
+  pref('tab', cur);
+  $('#view').textContent=''; $('#headx').textContent='';
   ({chat:viewChat, collect:viewCollect, connect:viewConnect, board:viewBoard}[cur] || viewChat)();
 }
 window.addEventListener('hashchange', route);
+
+/* ---------------- 로딩 ---------------- */
+function skeleton(box, n){
+  box.textContent='';
+  for(let i=0;i<n;i++){
+    const c = el('div','skcard');
+    c.innerHTML = '<div class="sk" style="width:30px;height:30px;border-radius:50%"></div>'+
+      '<div style="flex:1"><div class="sk" style="width:'+(35+i*9)+'%"></div>'+
+      '<div class="sk" style="width:'+(20+i*7)+'%;height:10px;margin-top:6px;opacity:.6"></div></div>';
+    box.appendChild(c);
+  }
+}
+const busyBox = (t) => el('div','busy','<span class="spin"></span>'+esc(t));
 
 /* ---------------- 대화 ---------------- */
 async function viewChat(){
@@ -301,6 +446,7 @@ async function viewChat(){
   }
   v.appendChild(quick);
   const stream = el('div', null); stream.id='stream'; v.appendChild(stream);
+  stream.appendChild(busyBox('대화를 불러오는 중...'));
 
   const chans = await api('/api/channels');
   const sel = $('#ch');
@@ -308,13 +454,16 @@ async function viewChat(){
     sel.appendChild(el('option', null, '수집 중인 채널 없음'));
     stream.innerHTML = '<div class="empty">수집 중인 채널이 없습니다.'+
       (ME.is_manager?'<br><b>수집</b> 탭에서 채널을 켜세요.':'<br>서버 관리자에게 요청하세요.')+'</div>';
+    say('모을 채널이 아직 없어. 수집부터 켜자!','idle');
     return;
   }
   for(const c of chans){
     const o = el('option', null, '#'+esc(c.channel_name)+' · '+c.message_count);
     o.value = c.channel_id; sel.appendChild(o);
   }
-  $('#d1').value = ago(6); $('#d2').value = '';
+  sel.value = pref('ch') || chans[0].channel_id;
+  if(!sel.value) sel.value = chans[0].channel_id;
+  $('#d1').value = pref('d1') || ago(6); $('#d2').value = pref('d2') || '';
   go.onclick = load; sel.onchange = load;
   $('#q').addEventListener('keydown', e => { if(e.key==='Enter') load(); });
   load();
@@ -323,12 +472,16 @@ async function viewChat(){
     // 끝 날짜를 비우면 '오늘까지' 로 읽는다 (두 칸이 범위로 보이므로)
     const q = $('#q').value.trim(), ch = sel.value;
     const d1 = $('#d1').value || today(), d2 = $('#d2').value || today();
-    stream.innerHTML = '<div class="empty">불러오는 중...</div>';
+    pref('ch', ch); pref('d1', $('#d1').value); pref('d2', $('#d2').value);
+    stream.textContent=''; stream.appendChild(busyBox(q?'검색하는 중...':'대화를 불러오는 중...'));
     const r = q
       ? await api('/api/search?'+new URLSearchParams({q, channel:ch, since:d1, until:d2}))
       : await api('/api/conversation?'+new URLSearchParams({channel:ch, date:d1, until:d2}));
     if(r.error){ stream.innerHTML='<div class="empty">'+esc(r.error)+'</div>'; return; }
+    const n = (r.messages||[]).length;
     render(stream, r.messages||[], q);
+    say(n ? n+'건 찾았어!' : '이 조건엔 아무것도 없네...', n?'happy':'idle');
+    setTimeout(()=>{ if(!BUSY) hebi('idle'); }, 2600);
   }
 }
 
@@ -371,7 +524,7 @@ async function viewCollect(){
     return;
   }
   v.appendChild(el('h2', null, '채널'));
-  const list = el('div', null); v.appendChild(list);
+  const list = el('div', null); v.appendChild(list); skeleton(list, 3);
 
   v.appendChild(el('h2', null, '과거 대화 가져오기'));
   const bf = el('div','card');
@@ -389,10 +542,10 @@ async function viewCollect(){
   const oo = el('div','card'); v.appendChild(oo);
 
   const chans = await api('/api/guild-channels');
+  list.textContent='';
   if(chans.error){
     list.innerHTML='<div class="empty">'+esc(chans.error)+'</div>';
   } else {
-    list.textContent='';
     for(const c of chans){
       const card = el('div','card');
       card.appendChild(el('div', null,
@@ -404,9 +557,12 @@ async function viewCollect(){
       b.textContent = c.collected?'중지':'수집 시작';
       b.disabled = !c.readable && !c.collected;
       b.onclick = async ()=>{
-        b.disabled=true;
+        b.disabled=true; b.textContent=''; b.appendChild(el('span','spin'));
+        BUSY++; say(c.collected?'끄는 중...':'#'+c.name+' 켜는 중...','working');
         const r = await post('/api/collect', {channel_id:c.id, on:!c.collected, notice:true});
-        if(!r.ok) alert(r.error||'실패');
+        BUSY--;
+        if(!r.ok){ alert(r.error||'실패'); say('실패했어...','idle'); }
+        else say(c.collected?'껐어!':'이제 #'+c.name+' 모을게!','happy');
         viewCollect();
       };
       card.appendChild(b); list.appendChild(card);
@@ -418,19 +574,23 @@ async function viewCollect(){
   }
 
   run.onclick = async ()=>{
-    blog.style.display='block'; blog.textContent='시작하는 중...';
-    run.disabled=true;
+    blog.style.display='block';
+    blog.innerHTML = '시작하는 중...<div class="prog"><i></i></div>';
+    run.disabled=true; BUSY++; say('과거 대화 긁어오는 중... 좀 걸려!','working');
     const body = {channel_id:$('#bch').value};
     if($('#bs').value){ body.since=$('#bs').value; body.until=$('#be').value; }
     else body.days = Number($('#bd').value)||90;
     const r = await post('/api/backfill', body);
-    if(!r.ok){ blog.textContent = r.error||'실패'; run.disabled=false; return; }
+    if(!r.ok){ blog.textContent = r.error||'실패'; run.disabled=false; BUSY--;
+      say('못 가져왔어...','idle'); return; }
     POLL = setInterval(async ()=>{
       const j = await api('/api/job/'+r.id);
-      blog.textContent = (j.span||'')+' — '+(j.count||0)+'건 적재'+(j.done?' · 완료':' ...');
-      if(j.lines && j.lines.length) blog.textContent += '\n'+j.lines.join('\n');
-      if(j.done){ clearInterval(POLL); POLL=null; run.disabled=false; }
-    }, 800);
+      blog.innerHTML = esc((j.span||'')+' — '+(j.count||0)+'건 적재'+(j.done?' · 완료':''))+
+        (j.done?'':'<div class="prog"><i></i></div>')+
+        (j.lines && j.lines.length ? '<br>'+esc(j.lines.join('\n')) : '');
+      if(j.done){ clearInterval(POLL); POLL=null; run.disabled=false; BUSY--;
+        say((j.count||0)+'건 가져왔어!','happy'); }
+    }, 700);
   };
 
   const st = await api('/api/optout');
@@ -453,7 +613,7 @@ async function viewCollect(){
 async function viewConnect(){
   const v = $('#view');
   v.appendChild(el('h2', null, '에이전트 계정'));
-  const accBox = el('div', null); v.appendChild(accBox);
+  const accBox = el('div', null); v.appendChild(accBox); skeleton(accBox, 2);
   const addBox = el('div', null); v.appendChild(addBox);
 
   v.appendChild(el('h2', null, '디스코드 연동'));
@@ -468,7 +628,7 @@ async function viewConnect(){
   const pmsg = el('div','meta'); v.appendChild(pmsg);
 
   v.appendChild(el('h2', null, 'MCP'));
-  v.appendChild(el('div','meta','기본 제공 항목은 주소를 입력할 필요가 없습니다. 인증이 필요하면 브라우저가 열립니다.'));
+  v.appendChild(el('div','meta','기본 제공 항목은 주소를 입력할 필요가 없습니다. 인증이 필요하면 창이 열립니다.'));
   const mcpBox = el('div', null); mcpBox.style.marginTop='9px'; v.appendChild(mcpBox);
 
   v.appendChild(el('h2', null, '온디맨드 — 목록에 없는 MCP'));
@@ -484,22 +644,23 @@ async function viewConnect(){
   accBox.textContent='';
   if(!accts.length) accBox.appendChild(el('div','card','<div class="meta">등록된 계정이 없습니다. 아래에서 연결하세요.</div>'));
   for(const a of accts){
-    const card = el('div','card');
+    const card = el('div','card new');
     card.appendChild(el('div', null, '<div class="who">'+esc(a.identity)+' '+
       (a.linked?'<span class="badge g">연동됨</span>':'<span class="badge y">미연동</span>')+'</div>'+
-      '<div class="meta">'+esc(AG[a.agent]||a.agent)+'</div>'));
+      '<div class="meta">'+esc(AG[a.agent]||a.agent)+' · 이 PC에 저장됨, 다시 로그인할 필요 없습니다</div>'));
     const b = el('button','ghost'); b.textContent='연결 해제';
     b.onclick = async ()=>{ if(!confirm('이 계정 연결을 해제할까요?')) return;
-      await post('/api/unlink', {home:a.home}); viewConnect(); };
+      await post('/api/unlink', {home:a.home}); boot(); };
     card.appendChild(b); accBox.appendChild(card);
   }
   addBox.textContent='';
   for(const [k,label] of Object.entries(AG)){
     const card = el('div','card');
     card.appendChild(el('div', null, '<div class="who">'+esc(label)+' 계정 추가</div>'+
-      '<div class="meta">브라우저 로그인만 하면 됩니다'+
+      '<div class="meta">로그인 창이 열립니다'+
       (k==='claude'?' · 연결되면 이 프로젝트 MCP가 자동으로 붙습니다':'')+'</div>'));
-    const b = el('button', null); b.textContent='연결'; b.onclick=()=>login(k, log);
+    const b = el('button', null); b.textContent='연결';
+    b.onclick = ()=>login(k, log, b);       // 팝업은 클릭 안에서 열어야 차단되지 않는다
     card.appendChild(b); addBox.appendChild(card);
   }
 
@@ -507,15 +668,18 @@ async function viewConnect(){
   pb.onclick = async ()=>{
     if(!accts.length){ pmsg.innerHTML='<span class="warn">먼저 에이전트 계정을 연결하세요.</span>'; return; }
     if(!pin.value.trim()){ pmsg.innerHTML='<span class="warn">코드를 입력하세요.</span>'; return; }
-    pmsg.textContent='연동 중...';
+    pmsg.innerHTML='<span class="spin"></span> 연동 중...';
+    BUSY++; say('연동하는 중...','working');
     const r = await post('/api/discord-link', {code:pin.value.trim(), home:accts[0].home});
+    BUSY--;
     pmsg.innerHTML = r.ok ? '<span class="ok">'+esc(r.user_name)+' 님으로 연동됐습니다.</span>'
                           : '<span class="warn">'+esc(r.error||'연동 실패')+'</span>';
-    if(r.ok){ pin.value=''; await boot(); location.hash='#connect'; }
+    say(r.ok ? esc(r.user_name)+' 님, 반가워!' : '코드가 안 맞아...', r.ok?'happy':'idle');
+    if(r.ok){ pin.value=''; boot(); }
   };
 
   // 카탈로그는 즉시 그리고, 연결 상태는 CLI 응답이 오면 채운다 (몇 초 걸릴 수 있음)
-  mcpBox.appendChild(el('div','meta','연결 상태 확인 중...'));
+  mcpBox.appendChild(busyBox('연결 상태 확인 중...'));
   const r = await api('/api/mcp');
   const have = new Set(r.servers||[]);
   mcpBox.textContent='';
@@ -527,10 +691,9 @@ async function viewConnect(){
     card.appendChild(el('div', null, '<div class="who">'+esc(label)+
       (on?' <span class="badge g">연결됨</span>':'')+'</div><div class="meta">'+esc(desc)+
       (isSelf?' · 자동':'')+'</div>'));
-    const b = el('button', on?'ghost':'ghost');
-    b.textContent = on?'해제':'연결';
-    b.onclick = ()=> on ? mcpDo('/api/mcp/remove', {name:key}, log)
-                        : mcpDo('/api/mcp/add', {key}, log);
+    const b = el('button','ghost'); b.textContent = on?'해제':'연결';
+    b.onclick = ()=> on ? mcpDo('/api/mcp/remove', {name:key}, log, b)
+                        : mcpDo('/api/mcp/add', {key}, log, b);
     card.appendChild(b); mcpBox.appendChild(card);
   }
   for(const name of (r.servers||[]))
@@ -539,37 +702,60 @@ async function viewConnect(){
       card.appendChild(el('div', null, '<div class="who">'+esc(name)+
         ' <span class="badge g">연결됨</span></div><div class="meta">직접 추가함</div>'));
       const b = el('button','ghost'); b.textContent='해제';
-      b.onclick = ()=> mcpDo('/api/mcp/remove', {name}, log);
+      b.onclick = ()=> mcpDo('/api/mcp/remove', {name}, log, b);
       card.appendChild(b); mcpBox.appendChild(card);
     }
   if(r.note) mcpBox.appendChild(el('div','meta', esc(r.note)));
 
-  ob.onclick = ()=> mcpDo('/api/mcp/add', {name:$('#mn').value, url:$('#mu').value}, log);
+  ob.onclick = (e)=> mcpDo('/api/mcp/add', {name:$('#mn').value, url:$('#mu').value}, log, ob);
 }
 
-async function login(agent, log){
+function spinning(btn){
+  if(!btn) return ()=>{};
+  const old = btn.textContent;
+  btn.disabled = true; btn.textContent=''; btn.appendChild(el('span','spin'));
+  return ()=>{ btn.disabled=false; btn.textContent=old; };
+}
+
+async function login(agent, log, btn){
+  // 클릭 제스처 안에서 빈 창을 먼저 연다. URL 은 나중에 채운다 (팝업 차단 회피)
+  const w = window.open('', 'hebi-login', 'width=560,height=760,noopener=no');
+  if(w) w.document.write('<title>로그인</title><body style="font:15px system-ui;padding:40px;'+
+    'text-align:center;color:#666">로그인 페이지를 여는 중...</body>');
+  const stop = spinning(btn);
   log.style.display='block'; log.textContent='로그인 창을 여는 중...';
+  BUSY++; say('로그인 창 띄울게!','working');
   const {id} = await post('/api/link/'+agent, {});
-  clearInterval(POLL); let shown=false;
+  clearInterval(POLL); let opened=false;
   POLL = setInterval(async ()=>{
     const j = await api('/api/job/'+id);
     log.textContent = (j.lines||[]).join('\n') || '진행 중...';
-    if(j.url && !shown){ shown=true;
-      const a=el('a','big','브라우저가 안 열렸다면 여기를 누르세요');
-      a.href=j.url; a.target='_blank';
-      log.appendChild(el('br')); log.appendChild(a); }
-    if(j.done){ clearInterval(POLL); POLL=null;
+    if(j.url && !opened){
+      opened = true;
+      if(w && !w.closed) w.location.href = j.url;
+      const a = el('a','big','로그인 창이 안 뜨면 여기를 누르세요');
+      a.href=j.url; a.target='hebi-login';
+      log.appendChild(el('br')); log.appendChild(a);
+    }
+    if(j.done){ clearInterval(POLL); POLL=null; stop(); BUSY--;
+      if(w && !w.closed && j.ok) try{ w.close(); }catch(e){}
       log.append(j.ok?'\n\n연결 완료: '+j.identity:'\n\n연결에 실패했습니다.');
-      await boot(); location.hash='#connect'; route(); }
+      say(j.ok?'연결됐어! 이제 안 물어볼게':'로그인이 안 끝났어...', j.ok?'happy':'idle');
+      boot();
+    }
     log.scrollTop = log.scrollHeight;
   }, 700);
 }
 
-async function mcpDo(path, body, log){
-  log.style.display='block'; log.textContent='처리 중...';
+async function mcpDo(path, body, log, btn){
+  const stop = spinning(btn);
+  log.style.display='block'; log.innerHTML='처리 중...<div class="prog"><i></i></div>';
+  BUSY++; say('MCP 붙이는 중...','working');
   const r = await post(path, body);
+  BUSY--; stop();
   log.textContent = (r.output || r.error || '') +
     (r.ok ? '\n\n완료. 처음 쓸 때 브라우저에서 로그인하라고 나올 수 있습니다.' : '\n\n실패했습니다.');
+  say(r.ok?'붙였어!':'잘 안 됐어...', r.ok?'happy':'idle');
   viewConnect();
 }
 
@@ -580,12 +766,12 @@ async function viewBoard(){
   bar.innerHTML='<div class="row" style="flex:1"><span class="meta">채널</span></div>';
   const sel = el('select'); bar.querySelector('.row').appendChild(sel); v.appendChild(bar);
   const chips = el('div','chips'); v.appendChild(chips);
-  const out = el('div', null); v.appendChild(out);
+  const out = el('div', null); v.appendChild(out); skeleton(out, 4);
 
-  let period = '7';
+  let period = pref('period') || '7';
   for(const [k,label] of [['7','최근 7일'],['30','최근 30일'],['all','전체']]){
     const c = el('span','chip'+(k===period?' on':''), esc(label));
-    c.onclick = ()=>{ period=k; [...chips.children].forEach(x=>x.className='chip');
+    c.onclick = ()=>{ period=k; pref('period',k); [...chips.children].forEach(x=>x.className='chip');
       c.className='chip on'; load(); };
     chips.appendChild(c);
   }
@@ -601,15 +787,22 @@ async function viewBoard(){
     if(!r.rows || !r.rows.length){
       out.innerHTML='<div class="empty">아직 수집된 대화가 없습니다.</div>'; return; }
     const max = r.rows[0].messages;
-    out.innerHTML = '<table><thead><tr><th class="rank">#</th><th>이름</th>'+
+    out.innerHTML = '<table><thead><tr><th class="rank">순위</th><th>이름</th>'+
       '<th class="n">메시지</th><th class="n">활동일</th><th class="n">채널</th></tr></thead><tbody>'+
-      r.rows.map((x,i)=>'<tr><td class="rank">'+(i+1)+'</td><td>'+esc(x.author)+
-        '<div class="bar" style="width:'+Math.max(2,Math.round(x.messages/max*100))+'%"></div></td>'+
-        '<td class="n">'+x.messages+'</td><td class="n">'+x.days+'</td>'+
-        '<td class="n">'+x.channels+'</td></tr>').join('')+'</tbody></table>';
+      r.rows.map((x,i)=>{
+        const rk = i<3 ? '<span class="medal m'+(i+1)+'">'+(i+1)+'</span>' : (i+1);
+        return '<tr><td class="rank">'+rk+'</td><td>'+esc(x.author)+
+          '<div class="bar"><i style="width:'+Math.max(3,Math.round(x.messages/max*100))+'%"></i></div></td>'+
+          '<td class="n">'+x.messages+'</td><td class="n">'+x.days+'</td>'+
+          '<td class="n">'+x.channels+'</td></tr>';
+      }).join('')+'</tbody></table>';
+    say(r.rows[0].author+' 님이 1등이야!','happy');
+    setTimeout(()=>{ if(!BUSY) hebi('idle', idleLine()); }, 2800);
   }
 }
 
 if(PRESET && !location.hash) location.hash='#connect';
+else if(!location.hash && pref('tab')) location.hash='#'+pref('tab');
+hebi('idle','불러오는 중...');
 boot();
 </script>
