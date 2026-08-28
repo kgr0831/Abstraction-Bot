@@ -1,5 +1,10 @@
 """mcp_server.py 자체 점검 — KST 변환·대화록 서식·툴 출력."""
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
+
 import json
 import os
 from datetime import datetime, timezone

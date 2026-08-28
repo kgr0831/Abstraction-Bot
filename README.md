@@ -3,8 +3,6 @@
 봇이 대화를 모아 SQLite에 쌓고, MCP로 에이전트에 노출하고, 에이전트가 정리해서 노션에 쓴다.
 **운영은 거의 다 웹 콘솔에서 한다. 각 사용자는 자기 CLI 에이전트를 연동해야 쓸 수 있다.**
 
-기획은 [PLAN.md](PLAN.md), 발단이 된 대화 정리는 [SPEC.md](SPEC.md).
-
 ## 구조
 
 ```
@@ -47,7 +45,7 @@ uv sync
 
 Claude / Codex **연결** 버튼 → 브라우저 로그인만. 계정마다 격리된 홈
 (`data/agents/<agent>/<id>/`)에서 벤더 CLI 자체의 로그인을 돌리므로
-**자격증명은 이 PC를 떠나지 않는다.** `test_launcher.py` 가 이 격리를 검증한다.
+**자격증명은 이 PC를 떠나지 않는다.** `tests/test_launcher.py` 가 이 격리를 검증한다.
 
 Claude 계정을 연결하면 **이 프로젝트의 MCP가 자동으로 붙는다.** 사용자가 할 일이 없다.
 
@@ -60,7 +58,7 @@ Claude 계정을 연결하면 **이 프로젝트의 MCP가 자동으로 붙는�
 목록에 없는 서버는 **온디맨드** 칸에서 이름과 주소를 직접 넣는다
 (`http://127.0.0.1:3845/mcp` 같은 로컬 주소도 된다).
 
-> 카탈로그 URL이 바뀌면 [launcher.py](launcher.py) 의 `MCP_CATALOG` 한 줄만 고치면 된다.
+> 카탈로그 URL이 바뀌면 [app/launcher.py](app/launcher.py) 의 `MCP_CATALOG` 한 줄만 고치면 된다.
 > Codex는 `config.toml` 직접 편집 방식이라 콘솔에서 MCP를 다루지 않는다.
 
 ### 연동하지 않으면 못 쓴다
@@ -105,17 +103,20 @@ MCP 툴 4개는 전부 앞단에서 연동을 확인한다. 이 PC에 등록된 
 ## 파일
 
 ```
-bot.py           수집 봇 + 콘솔용 브리지. LLM 없음
-db.py            스키마 + 공용 쿼리. UTC 저장, KST 조회
-mcp_server.py    읽기 전용 MCP 서버 + 연동 게이트
-launcher.py      콘솔 API · 페어링 서버 (127.0.0.1:8787)
-console.html     콘솔 UI (탭 4개). 요청마다 읽으므로 고치고 새로고침만 하면 된다
-                 디자인 토큰은 orca 와 동일 (shadcn/ui neutral)
-run.py           봇 + 콘솔을 한 프로세스로
-start.bat        실행 진입점. 창 닫으면 종료
-.mcp.json        Claude Code MCP 등록 (uv run 이라 경로 무관)
-.claude/skills/  daily-report · idea-extract
-data/            SQLite · 등록된 계정 (gitignore됨)
+run.py              진입점 — 봇 + 콘솔을 한 프로세스로
+start.bat           실행. 창을 닫으면 둘 다 종료
+app/
+  bot.py            수집 봇 + 콘솔용 브리지. LLM 없음
+  db.py             스키마 + 공용 쿼리. UTC 저장, KST 조회
+  mcp_server.py     읽기 전용 MCP 서버 + 연동 게이트
+  launcher.py       콘솔 API · 페어링 서버 (127.0.0.1:8787)
+  console.html      콘솔 UI (탭 4개). 요청마다 읽으므로 고치고 새로고침만 하면 된다
+                    디자인 토큰은 orca 와 동일 (shadcn/ui neutral)
+tests/              test_db · test_mcp · test_launcher
+.claude/skills/     daily-report · idea-extract
+.mcp.json           Claude Code MCP 등록 (uv run 이라 경로 무관)
+data/               SQLite · 등록된 계정 (gitignore됨)
+docs/               기획 문서 (로컬 전용, gitignore됨)
 ```
 
 ## 환경 변수
@@ -131,7 +132,7 @@ data/            SQLite · 등록된 계정 (gitignore됨)
 ## 테스트
 
 ```bash
-uv run python test_db.py && uv run python test_mcp.py && uv run python test_launcher.py
+uv run python tests/test_db.py && uv run python tests/test_mcp.py && uv run python tests/test_launcher.py
 ```
 
 ## 설계 메모
@@ -148,7 +149,7 @@ uv run python test_db.py && uv run python test_mcp.py && uv run python test_laun
   스레드에 묶이기 때문.
 - **리더보드 집계는 파이썬에서 KST로 접는다.** `created_at` 의 마이크로초까지 SQLite `date()`
   가 안전하게 못 읽는다.
-- **콘솔 디자인은 orca 를 따랐다.** `console.html` 상단 토큰은 orca 리소스에서 그대로
+- **콘솔 디자인은 orca 를 따랐다.** `app/console.html` 상단 토큰은 orca 리소스에서 그대로
   가져온 shadcn/ui neutral 값이다 (primary `#171717`/`#e5e5e5`, radius `.625rem`,
   사이드바 `239px`). 라이트/다크 둘 다 지원한다. 로고와 파비콘은 봇 아바타를 쓴다.
 - **페어링 요청은 stdlib `urllib`.** 호출 한 곳 때문에 HTTP 클라이언트를 의존성에 넣지 않는다.

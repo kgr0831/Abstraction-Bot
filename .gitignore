@@ -8,3 +8,6 @@ __pycache__/
 .claude.json
 **/.claude.json
 H/
+
+# 기획 문서는 로컬에만 둔다
+docs/

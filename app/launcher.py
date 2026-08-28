@@ -39,8 +39,9 @@ import db
 
 load_dotenv()
 
-ROOT = Path(__file__).parent
-AGENTS_DIR = ROOT / "data" / "agents"
+ROOT = Path(__file__).resolve().parent          # app/
+PROJECT = ROOT.parent                          # 저장소 루트
+AGENTS_DIR = PROJECT / "data" / "agents"
 ACCOUNTS = db.ACCOUNTS_PATH
 PORT = int(os.getenv("LAUNCHER_PORT", "8787"))
 SERVER_URL = os.getenv("SERVER_URL", "http://127.0.0.1:%d" % PORT)

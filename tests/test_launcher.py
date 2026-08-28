@@ -4,6 +4,11 @@
 실제 로그인은 부작용이라 건드리지 않는다 (읽기 전용 status 만 호출).
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
+
 import json
 import os
 import tempfile

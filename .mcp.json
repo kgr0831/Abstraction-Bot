@@ -5,7 +5,7 @@
       "args": [
         "run",
         "python",
-        "mcp_server.py"
+        "app/mcp_server.py"
       ]
     }
   }

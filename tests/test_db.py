@@ -1,5 +1,10 @@
 """db.py 자체 점검. `python test_db.py` 로 실행."""
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
+
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 

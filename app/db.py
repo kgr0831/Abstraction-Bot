@@ -11,7 +11,8 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-DB_PATH = Path(os.getenv("COLLECTOR_DB") or Path(__file__).parent / "data" / "messages.db")
+PROJECT = Path(__file__).resolve().parent.parent
+DB_PATH = Path(os.getenv("COLLECTOR_DB") or PROJECT / "data" / "messages.db")
 KST = timezone(timedelta(hours=9))
 
 SCHEMA = """
@@ -332,7 +333,7 @@ def linked_identities(conn):
     return {r["identity"] for r in conn.execute("SELECT identity FROM links")}
 
 
-ACCOUNTS_PATH = Path(os.getenv("COLLECTOR_ACCOUNTS") or Path(__file__).parent / "data" / "accounts.json")
+ACCOUNTS_PATH = Path(os.getenv("COLLECTOR_ACCOUNTS") or PROJECT / "data" / "accounts.json")
 
 
 def local_accounts():
