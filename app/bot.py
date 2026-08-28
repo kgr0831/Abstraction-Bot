@@ -207,7 +207,7 @@ async def ensure_digest_channel(guild_id=None, name=DIGEST_CHANNEL):
     return await g.create_text_channel(name, topic="매일 자동으로 올라오는 대화 결산")
 
 
-def setup_digest(guild_id=None, hour=9, channel_id=None, model=None):
+def setup_digest(guild_id=None, hour=9, channel_id=None, model=None, retention=None):
     """콘솔이 부른다. 채널·시각·모델을 저장한다."""
     ch = client.get_channel(int(channel_id)) if channel_id else _call(ensure_digest_channel(guild_id))
     if ch is None:
@@ -218,6 +218,8 @@ def setup_digest(guild_id=None, hour=9, channel_id=None, model=None):
         db.set_setting(c, "digest_hour", int(hour))
         if model:
             db.set_setting(c, "digest_model", model)
+        if retention is not None:
+            db.set_setting(c, "retention_days", max(0, int(retention)))
     finally:
         c.close()
     return {"id": str(ch.id), "name": ch.name, "hour": int(hour), "model": digest.model()}
@@ -231,6 +233,7 @@ def digest_config():
                 "channel_name": getattr(client.get_channel(int(cid)), "name", None) if cid else None,
                 "hour": int(db.get_setting(c, "digest_hour", "9")),
                 "last": db.get_setting(c, "digest_last"),
+                "retention_days": db.retention_days(c),
                 "model": digest.model(),
                 "models": digest.MODELS,
                 "has_key": digest.key_present(),
@@ -274,9 +277,29 @@ def run_digest_now(date=None):
     return _call(post_digest(cfg["channel_id"], date or digest.yesterday_kst()), timeout=900)
 
 
+def purge_tick():
+    """하루 한 번 보존 기간이 지난 메시지를 지운다. 결산 설정과 무관하게 돈다."""
+    today = datetime.now(db.KST).date().isoformat()
+    c = bridge_conn()
+    try:
+        if db.get_setting(c, "last_purge") == today:
+            return 0
+        db.set_setting(c, "last_purge", today)
+        n = db.purge_old(c)
+    finally:
+        c.close()
+    if n:
+        log.info("보존 기간 정리: %d건 삭제", n)
+    return n
+
+
 @tasks.loop(minutes=1)
 async def digest_tick():
-    """설정된 시각(KST)이 지나면 전날 결산을 한 번 올린다."""
+    """설정된 시각(KST)이 지나면 전날 결산을 올리고, 하루 한 번 오래된 원문을 지운다."""
+    try:
+        await asyncio.get_running_loop().run_in_executor(None, purge_tick)
+    except Exception as e:  # noqa: BLE001
+        log.warning("정리 실패: %s", e)
     c = bridge_conn()
     try:
         cid = db.get_setting(c, "digest_channel_id")

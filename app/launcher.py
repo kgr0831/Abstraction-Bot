@@ -719,9 +719,17 @@ async def api_digest(request):
     if model and model not in digest.MODEL_IDS:
         # 없는 모델을 넣으면 결산이 400 으로 죽으므로 여기서 막는다
         return JSONResponse({"ok": False, "error": "모르는 모델입니다: %s" % model}, 400)
+    retention = body.get("retention_days")
+    if retention is not None:
+        try:
+            retention = int(retention)
+        except (TypeError, ValueError):
+            return JSONResponse({"ok": False, "error": "보존 일수는 숫자여야 합니다."}, 400)
+        if not 0 <= retention <= 3650:
+            return JSONResponse({"ok": False, "error": "보존 일수는 0~3650 이어야 합니다."}, 400)
     try:
         out = await run_in_threadpool(
-            b.setup_digest, body.get("guild_id"), hour, body.get("channel_id"), model)
+            b.setup_digest, body.get("guild_id"), hour, body.get("channel_id"), model, retention)
         return JSONResponse({"ok": True, **out})
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"ok": False, "error": str(e)}, 400)

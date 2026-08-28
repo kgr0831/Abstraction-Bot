@@ -415,3 +415,31 @@ def set_setting(conn, key, value):
         conn.execute("DELETE FROM settings WHERE key=?", (key,))
     else:
         conn.execute("INSERT OR REPLACE INTO settings VALUES (?,?)", (key, str(value)))
+
+
+# --- 보존 기간 --------------------------------------------------------------
+# 용량 때문이 아니라 프라이버시 때문이다. 남의 대화 사본을 무기한 들고 있지 않는다.
+# 결산은 이미 디스코드에 게시돼 있으므로 원문이 지워져도 정리본은 남는다.
+
+DEFAULT_RETENTION_DAYS = 90
+
+
+def retention_days(conn):
+    """0 이면 무제한."""
+    try:
+        return max(0, int(get_setting(conn, "retention_days", DEFAULT_RETENTION_DAYS)))
+    except (TypeError, ValueError):
+        return DEFAULT_RETENTION_DAYS
+
+
+def purge_old(conn, days=None):
+    """보존 기간이 지난 메시지를 지운다. 지운 건수를 돌려준다."""
+    days = retention_days(conn) if days is None else int(days)
+    if days <= 0:
+        return 0
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    n = conn.execute("DELETE FROM messages WHERE created_at < ?", (cutoff,)).rowcount
+    if n:
+        # 삭제해도 SQLite 파일은 안 줄어든다 — 하루 한 번이라 부담 없다
+        conn.execute("VACUUM")
+    return n

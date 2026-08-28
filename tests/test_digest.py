@@ -66,7 +66,35 @@ def main():
     finally:
         conn.close()
 
-    # 3. 디스코드 2000자 제한에 맞춰 줄 단위로 자른다
+    # 3. 보존 기간 — 지난 것만 지우고, 0 이면 아무것도 안 지운다
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+    conn = db.connect()
+    try:
+        db.add_channel(conn, "c1", "g1", "t")
+
+        def m(i, days_ago):
+            return SimpleNamespace(
+                id=str(i), guild=SimpleNamespace(id="g1"),
+                channel=SimpleNamespace(id="c1", name="t",
+                                        type=SimpleNamespace(name="text"), parent=None),
+                author=SimpleNamespace(id="u1", display_name="a"), content="x",
+                created_at=datetime.now(timezone.utc) - timedelta(days=days_ago),
+                edited_at=None, reference=None, attachments=[])
+
+        for i, ago in enumerate([1, 30, 100, 200]):
+            db.upsert_message(conn, m(i, ago))
+        assert db.retention_days(conn) == db.DEFAULT_RETENTION_DAYS
+        assert db.purge_old(conn) == 2, "90일 초과 2건이 안 지워짐"
+        assert conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 2
+        db.set_setting(conn, "retention_days", "0")
+        assert db.purge_old(conn) == 0, "0(무제한)인데 지움"
+        assert conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 2
+        db.set_setting(conn, "retention_days", None)
+    finally:
+        conn.close()
+
+    # 4. 디스코드 2000자 제한에 맞춰 줄 단위로 자른다
     long = "\n".join("줄 %d 짧은 내용" % i for i in range(400))
     parts = digest.chunks(long)
     assert len(parts) > 1
@@ -74,7 +102,7 @@ def main():
     assert "\n".join(parts) == long, "자르면서 내용이 바뀜"
     assert digest.chunks("한 줄") == ["한 줄"]
 
-    # 4. 어제 날짜는 KST 기준
+    # 5. 어제 날짜는 KST 기준
     from datetime import datetime, timedelta
     assert digest.yesterday_kst() == (datetime.now(db.KST).date() - timedelta(days=1)).isoformat()
 

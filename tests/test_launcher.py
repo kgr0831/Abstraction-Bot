@@ -122,6 +122,8 @@ def main():
     r = c.post("/api/digest", json={"hour": 9, "model": "gpt-없는거"})
     assert r.status_code == 400 and "모르는 모델" in r.json()["error"], r.text
     assert c.post("/api/digest", json={"hour": 99}).status_code == 400
+    assert c.post("/api/digest", json={"hour": 9, "retention_days": -1}).status_code == 400
+    assert c.post("/api/digest", json={"hour": 9, "retention_days": "아무거나"}).status_code == 400
 
     # 12. 콘솔 브리지는 스레드마다 새 커넥션을 연다
     #     (SQLite 커넥션은 스레드에 묶여서, 봇 루프의 conn 을 스레드풀에서 쓰면 터진다)
