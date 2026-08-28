@@ -125,6 +125,16 @@ def main():
     assert c.post("/api/digest", json={"hour": 9, "retention_days": -1}).status_code == 400
     assert c.post("/api/digest", json={"hour": 9, "retention_days": "아무거나"}).status_code == 400
 
+    # 11c. 아이콘 내용 검증 — 어떤 사이트는 없는 파비콘 경로에 SPA 껍데기 HTML 을
+    #      200 으로 준다. 그걸 저장하면 브라우저가 조용히 거부해 글자로 떨어진다.
+    assert not launcher.looks_like_icon(b"<!doctype html><html>" + b"x" * 50, "text/html")
+    assert not launcher.looks_like_icon(b"<html><body>nope</body></html>" + b" " * 40, "")
+    assert not launcher.looks_like_icon(b"tiny", "image/png"), "너무 작은 건 거른다"
+    assert launcher.looks_like_icon(bytes.fromhex("89504e47") + b"x" * 50, "image/png")
+    assert launcher.looks_like_icon(bytes.fromhex("00000100") + b"x" * 50, "")
+    assert launcher.looks_like_icon(b'<svg viewBox="0 0 1 1"></svg>' + b" " * 40, "")
+    assert c.get("/icon/../etc").status_code in (400, 404)
+
     # 12. 콘솔 브리지는 스레드마다 새 커넥션을 연다
     #     (SQLite 커넥션은 스레드에 묶여서, 봇 루프의 conn 을 스레드풀에서 쓰면 터진다)
     import threading

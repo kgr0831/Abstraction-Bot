@@ -22,6 +22,7 @@ import subprocess
 import sys
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 import webbrowser
@@ -32,7 +33,8 @@ import uvicorn
 from dotenv import load_dotenv
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
-from starlette.responses import FileResponse, HTMLResponse, JSONResponse
+from starlette.responses import (FileResponse, HTMLResponse, JSONResponse,
+                                 RedirectResponse)
 from starlette.routing import Mount, Route
 
 import db
@@ -61,12 +63,14 @@ AGENTS = {
         "login": ["claude", "auth", "login"],
         "status": ["claude", "auth", "status"],
         "mcp": True,
+        "domain": "claude.ai",
     },
     "codex": {
         "label": "Codex",
         "home_env": "CODEX_HOME",
         "login": ["codex", "login"],
         "status": ["codex", "login", "status"],
+        "domain": "openai.com",
         "mcp": False,  # codex 는 config.toml 직접 편집이라 여기서 다루지 않는다
     },
 }
@@ -75,15 +79,19 @@ AGENTS = {
 # 인증이 필요하면 CLI 가 브라우저를 띄운다.
 # URL 이 바뀌면 여기 한 줄만 고친다. 목록에 없는 건 '온디맨드' 탭에서 붙인다.
 MCP_CATALOG = {
-    "notion": {"label": "Notion", "url": "https://mcp.notion.com/mcp",
+    "notion": {"domain": "notion.so",
+               "icon": "https://www.notion.so/front-static/favicon.ico",
+               "label": "Notion", "url": "https://mcp.notion.com/mcp",
                "desc": "요약·아이디어를 노션 DB에 기록"},
-    "figma": {"label": "Figma", "url": "https://mcp.figma.com/mcp",
+    "figma": {"domain": "figma.com",
+              "icon": "https://static.figma.com/app/icon/1/favicon.svg",
+              "label": "Figma", "url": "https://mcp.figma.com/mcp",
               "desc": "디자인 파일 읽기·생성"},
-    "linear": {"label": "Linear", "url": "https://mcp.linear.app/mcp",
+    "linear": {"domain": "linear.app", "label": "Linear", "url": "https://mcp.linear.app/mcp",
                "desc": "이슈·프로젝트"},
-    "sentry": {"label": "Sentry", "url": "https://mcp.sentry.dev/mcp",
+    "sentry": {"domain": "sentry.io", "label": "Sentry", "url": "https://mcp.sentry.dev/mcp",
                "desc": "에러 추적"},
-    "github": {"label": "GitHub", "url": "https://api.githubcopilot.com/mcp/",
+    "github": {"domain": "github.com", "label": "GitHub", "url": "https://api.githubcopilot.com/mcp/",
                "desc": "저장소·이슈·PR"},
 }
 
@@ -189,6 +197,85 @@ def state_rev():
                               int(bool(b and b.ready())))
 
 
+IMAGE_MAGIC = (bytes.fromhex("89504e47"),   # png
+               bytes.fromhex("00000100"),   # ico
+               bytes.fromhex("ffd8ff"),     # jpeg
+               b"GIF8", b"RIFF", b"<svg", b"<?xml")
+
+
+def head_is_html(data):
+    return data[:200].lstrip().lower().startswith((b"<!doctype html", b"<html"))
+
+
+ICON_DIR = PROJECT / "data" / "icons"
+ICON_PATHS = ("/favicon.svg", "/favicon.ico", "/apple-touch-icon.png")
+ICON_TYPES = {".svg": "image/svg+xml", ".ico": "image/x-icon", ".png": "image/png"}
+
+
+def icon_urls(key):
+    """받아볼 주소들. 직접 지정 > 도메인 루트 > www 루트."""
+    spec = MCP_CATALOG.get(key) or AGENTS.get(key) or {}
+    out = [spec["icon"]] if spec.get("icon") else []
+    dom = spec.get("domain")
+    if dom:
+        hosts = [dom] if dom.startswith("www.") else [dom, "www." + dom]
+        out += ["https://%s%s" % (h, p) for h in hosts for p in ICON_PATHS]
+    return out
+
+
+def looks_like_icon(data, ctype):
+    """진짜 이미지인지 본다. 어떤 사이트는 없는 파비콘 경로에 SPA 껍데기 HTML 을
+    200 으로 돌려주는데, 그걸 저장하면 브라우저가 조용히 거부한다."""
+    if not data or len(data) < 32:
+        return False
+    if head_is_html(data) or (ctype or "").startswith("text/"):
+        return False
+    if data.startswith(IMAGE_MAGIC):
+        return True
+    if b"<svg" in data[:2000].lower():
+        return True
+    return bool(ctype and ctype.startswith("image/"))
+
+
+
+def fetch_icon(key):
+    """서비스 파비콘을 한 번만 받아 캐시한다.
+    사용자 브라우저가 외부로 나가지 않게 우리가 받아서 내려준다."""
+    ICON_DIR.mkdir(parents=True, exist_ok=True)
+    for f in ICON_DIR.glob(key + ".*"):
+        return f
+    for url in icon_urls(key):
+        try:
+            req = urllib.request.Request(
+                url, headers={"User-Agent": "Mozilla/5.0 (abstraction-console)"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                data = r.read()
+                ctype = (r.headers.get("content-type") or "").split(";")[0].strip()
+            if len(data) > 512_000 or not looks_like_icon(data, ctype):
+                continue
+            ext = Path(urllib.parse.urlparse(url).path).suffix or ".png"
+            out = ICON_DIR / (key + ext)
+            out.write_bytes(data)
+            return out
+        except (urllib.error.URLError, OSError, ValueError):
+            continue
+    return None
+
+
+async def api_icon(request):
+    key = request.path_params["key"]
+    if not re.fullmatch(r"[\w-]{1,64}", key):
+        return JSONResponse({"error": "bad key"}, status_code=400)
+    if key == SELF_MCP["name"]:
+        # 이 프로젝트는 봇 아바타를 쓴다
+        url = await run_in_threadpool(bot_icon)
+        return RedirectResponse(url) if url else JSONResponse({"error": "none"}, 404)
+    f = await run_in_threadpool(fetch_icon, key)
+    if not f:
+        return JSONResponse({"error": "none"}, status_code=404)
+    return FileResponse(f, media_type=ICON_TYPES.get(f.suffix, "image/png"))
+
+
 _icon = None
 
 
@@ -233,6 +320,15 @@ def bot_bridge():
     return sys.modules.get("bot")
 
 
+def drop_home(home):
+    """격리 홈 삭제. AGENTS_DIR 안쪽만 지운다."""
+    try:
+        if home and Path(home).resolve().is_relative_to(AGENTS_DIR.resolve()):
+            shutil.rmtree(home, ignore_errors=True)
+    except (ValueError, OSError):
+        pass
+
+
 def do_login(job_id, agent):
     job = jobs[job_id]
     spec = AGENTS[agent]
@@ -260,6 +356,23 @@ def do_login(job_id, agent):
     who = identity(agent, home)
     if who:
         accts = [a for a in load_accounts() if a["home"] != str(home)]
+        # 같은 에이전트에 같은 계정을 두 번 등록하지 않는다.
+        # 다른 에이전트(claude/codex)에 같은 계정은 서로 다른 것이라 허용한다.
+        dup = next((a for a in accts
+                    if a.get("agent") == agent and a.get("identity") == who), None)
+        if dup and identity(agent, dup["home"]) == who:
+            # 기존 등록이 아직 살아 있다 — 방금 만든 격리 홈은 버린다
+            drop_home(str(home))
+            job["identity"] = who
+            job["ok"] = True
+            job["lines"].append("이미 등록된 계정입니다 (%s). 새로 추가하지 않았습니다." % who)
+            job["done"] = True
+            return
+        if dup:
+            # 기존 등록이 죽어 있다(로그아웃·만료) — 새 로그인으로 갈아끼운다
+            accts = [a for a in accts if a is not dup]
+            drop_home(dup["home"])
+            job["lines"].append("만료된 기존 등록을 새 로그인으로 교체했습니다.")
         accts.append({"agent": agent, "identity": who, "home": str(home)})
         save_accounts(accts)
         job["identity"] = who
@@ -446,12 +559,7 @@ async def api_unlink(request):
     body = await request.json()
     home = body.get("home", "")
     save_accounts([a for a in load_accounts() if a["home"] != home])
-    try:
-        # 격리 홈 안쪽만 지운다 — 경로를 넘겨받으므로 반드시 확인한다
-        if home and Path(home).resolve().is_relative_to(AGENTS_DIR.resolve()):
-            shutil.rmtree(home, ignore_errors=True)
-    except (ValueError, OSError):
-        pass
+    drop_home(home)          # 경로를 넘겨받으므로 안쪽인지 확인하고 지운다
     return JSONResponse({"ok": True})
 
 
@@ -860,6 +968,7 @@ app = Starlette(lifespan=MCP_APP.router.lifespan_context, routes=[
     Route("/api/me", api_me),
     Route("/api/state", api_state),
     Route("/mascot/{state}", mascot),
+    Route("/icon/{key}", api_icon),
     Route("/api/accounts", api_accounts),
     Route("/api/link/{agent}", api_link, methods=["POST"]),
     Route("/api/job/{job_id}", api_job),

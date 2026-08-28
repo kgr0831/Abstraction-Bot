@@ -109,6 +109,11 @@ h2:first-child{margin-top:0}
 .card.new{animation:slidein .26s ease-out}
 @keyframes slidein{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
 .card>div:first-child{min-width:0;flex:1}
+.lead{display:flex;align-items:center;gap:11px;min-width:0;flex:1}
+.svc{width:28px;height:28px;flex:0 0 28px;border-radius:var(--radius-sm);overflow:hidden;
+     display:grid;place-items:center;background:var(--secondary);border:1px solid var(--border)}
+.svc img{width:19px;height:19px;object-fit:contain;display:block}
+.svc.letter{font-weight:700;font-size:13px;color:var(--muted-foreground)}
 .who{font-weight:550;font-size:14px;letter-spacing:-.005em}
 .meta{color:var(--muted-foreground);font-size:12.5px;margin-top:1px}
 .ok{color:var(--ok);font-weight:600} .warn{color:var(--warn);font-weight:600}
@@ -268,6 +273,23 @@ const ICON = {
               '<path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"/>'),
   board: ic('<path d="M12 20V10M18 20V4M6 20v-4"/>'),
 };
+// 서비스 아이콘. 서버가 파비콘을 받아 캐시해서 내려준다 (브라우저가 외부로 안 나감).
+// 못 받으면 글자 마크로 떨어진다.
+function svc(key, label){
+  const w = el('div','svc');
+  const i = el('img'); i.src = '/icon/' + encodeURIComponent(key); i.alt = '';
+  i.onerror = ()=>{ w.textContent = (label||key).slice(0,1).toUpperCase();
+                    w.classList.add('letter'); };
+  w.appendChild(i);
+  return w;
+}
+function lead(key, label, html){
+  const d = el('div','lead');
+  d.appendChild(svc(key, label));
+  d.appendChild(el('div', null, html));
+  return d;
+}
+
 const TABS = [
   ['chat','대화', ICON.chat, '대화 보기', '수집된 채널의 대화를 날짜 범위로 보고 검색합니다.'],
   ['collect','수집', ICON.collect, '수집 관리', '어떤 채널을 모을지 정하고 과거 대화를 가져옵니다.'],
@@ -732,7 +754,8 @@ async function viewConnect(){
   if(!accts.length) accBox.appendChild(el('div','card','<div class="meta">등록된 계정이 없습니다. 아래에서 연결하세요.</div>'));
   for(const a of accts){
     const card = el('div','card new');
-    card.appendChild(el('div', null, '<div class="who">'+esc(a.identity)+' '+
+    card.appendChild(lead(a.agent, AG[a.agent]||a.agent,
+      '<div class="who">'+esc(a.identity)+' '+
       (a.linked?'<span class="badge g">연동됨</span>':'<span class="badge y">미연동</span>')+'</div>'+
       '<div class="meta">'+esc(AG[a.agent]||a.agent)+' · 이 PC에 저장됨, 다시 로그인할 필요 없습니다</div>'));
     const b = el('button','ghost'); b.textContent='연결 해제';
@@ -743,7 +766,7 @@ async function viewConnect(){
   addBox.textContent='';
   for(const [k,label] of Object.entries(AG)){
     const card = el('div','card');
-    card.appendChild(el('div', null, '<div class="who">'+esc(label)+' 계정 추가</div>'+
+    card.appendChild(lead(k, label, '<div class="who">'+esc(label)+' 계정 추가</div>'+
       '<div class="meta">로그인 창이 열립니다'+
       (k==='claude'?' · 연결되면 이 프로젝트 MCP가 자동으로 붙습니다':'')+'</div>'));
     const b = el('button', null); b.textContent='연결';
@@ -775,7 +798,7 @@ async function viewConnect(){
   for(const [key,label,desc,isSelf] of items){
     const on = have.has(key);
     const card = el('div','card');
-    card.appendChild(el('div', null, '<div class="who">'+esc(label)+
+    card.appendChild(lead(key, label, '<div class="who">'+esc(label)+
       (on?' <span class="badge g">연결됨</span>':'')+'</div><div class="meta">'+esc(desc)+
       (isSelf?' · 자동':'')+'</div>'));
     const b = el('button','ghost'); b.textContent = on?'해제':'연결';
@@ -786,7 +809,7 @@ async function viewConnect(){
   for(const name of (r.servers||[]))
     if(!CATALOG[name] && name!==SELFMCP.name){
       const card = el('div','card');
-      card.appendChild(el('div', null, '<div class="who">'+esc(name)+
+      card.appendChild(lead(name, name, '<div class="who">'+esc(name)+
         ' <span class="badge g">연결됨</span></div><div class="meta">직접 추가함</div>'));
       const b = el('button','ghost'); b.textContent='해제';
       b.onclick = ()=> mcpDo('/api/mcp/remove', {name}, log, b);
