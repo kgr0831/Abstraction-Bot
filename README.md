@@ -110,6 +110,7 @@ db.py            스키마 + 공용 쿼리. UTC 저장, KST 조회
 mcp_server.py    읽기 전용 MCP 서버 + 연동 게이트
 launcher.py      콘솔 API · 페어링 서버 (127.0.0.1:8787)
 console.html     콘솔 UI (탭 4개). 요청마다 읽으므로 고치고 새로고침만 하면 된다
+                 디자인 토큰은 orca 와 동일 (shadcn/ui neutral)
 run.py           봇 + 콘솔을 한 프로세스로
 start.bat        실행 진입점. 창 닫으면 종료
 .mcp.json        Claude Code MCP 등록 (uv run 이라 경로 무관)
@@ -147,4 +148,7 @@ uv run python test_db.py && uv run python test_mcp.py && uv run python test_laun
   스레드에 묶이기 때문.
 - **리더보드 집계는 파이썬에서 KST로 접는다.** `created_at` 의 마이크로초까지 SQLite `date()`
   가 안전하게 못 읽는다.
+- **콘솔 디자인은 orca 를 따랐다.** `console.html` 상단 토큰은 orca 리소스에서 그대로
+  가져온 shadcn/ui neutral 값이다 (primary `#171717`/`#e5e5e5`, radius `.625rem`,
+  사이드바 `239px`). 라이트/다크 둘 다 지원한다. 로고와 파비콘은 봇 아바타를 쓴다.
 - **페어링 요청은 stdlib `urllib`.** 호출 한 곳 때문에 HTTP 클라이언트를 의존성에 넣지 않는다.

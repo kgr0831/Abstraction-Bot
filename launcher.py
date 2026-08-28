@@ -29,12 +29,15 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import uvicorn
+from dotenv import load_dotenv
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import HTMLResponse, JSONResponse
 from starlette.routing import Route
 
 import db
+
+load_dotenv()
 
 ROOT = Path(__file__).parent
 AGENTS_DIR = ROOT / "data" / "agents"
@@ -145,6 +148,33 @@ def post_json(url, payload):
         return 502, {"ok": False, "error": f"서버({SERVER_URL})에 연결하지 못했습니다: {e}"}
 
 
+_icon = None
+
+
+def bot_icon():
+    """봇 아바타 URL. 한 번만 물어보고 캐시한다. 실패하면 None (글자 로고로 대체)."""
+    global _icon
+    if _icon is not None:
+        return _icon or None
+    _icon = ""
+    tok = os.getenv("DISCORD_TOKEN")
+    if not tok:
+        return None
+    try:
+        req = urllib.request.Request(
+            "https://discord.com/api/v10/users/@me",
+            headers={"Authorization": "Bot " + tok,
+                     "User-Agent": "DiscordBot (abstraction-console, 0.1)"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            d = json.loads(r.read().decode("utf-8"))
+        if d.get("avatar"):
+            _icon = "https://cdn.discordapp.com/avatars/%s/%s.png?size=64" % (d["id"], d["avatar"])
+    except (urllib.error.URLError, OSError, ValueError, KeyError):
+        pass
+    return _icon or None
+
+
 def find_account(home):
     for a in load_accounts():
         if a["home"] == home:
@@ -225,6 +255,7 @@ async def api_me(request):
            "bot_ready": False, "server_url": SERVER_URL}
     b = bot_bridge()
     out["bot_ready"] = bool(b and b.ready())
+    out["icon"] = await run_in_threadpool(bot_icon)
     if acct:
         conn = db.connect()
         try:
