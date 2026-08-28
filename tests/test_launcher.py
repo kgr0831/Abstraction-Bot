@@ -28,7 +28,9 @@ import launcher  # noqa: E402
 
 
 def main():
-    c = TestClient(launcher.app)
+    # 루프백에서 온 요청으로 흉내낸다 (기본값 'testclient' 는 인증에 걸린다)
+    c = TestClient(launcher.app, client=("127.0.0.1", 50000))
+    far = TestClient(launcher.app, client=("203.0.113.9", 50000))
 
     # 1. 콘솔 페이지가 뜨고 자리표시자가 전부 치환된다
     html = c.get("/").text
@@ -72,8 +74,15 @@ def main():
         conn.close()
     r = c.post("/api/pair", json={"code": code, "agent": "claude", "identity": "a@b.c"})
     assert r.json().get("ok") and r.json()["user_name"] == "테스터", r.text
+    tok = r.json()["token"]
+    assert len(tok) > 20
     assert c.post("/api/pair", json={"code": code, "agent": "claude", "identity": "a@b.c"}
                   ).status_code == 400, "코드가 재사용됨"
+
+    # 7b. 루프백 밖에서는 토큰이 있어야 통한다
+    assert far.get("/api/channels").status_code == 401
+    assert far.get("/api/channels", headers={"X-Abstraction-Token": tok}).status_code == 200
+    assert far.get("/api/channels", headers={"X-Abstraction-Token": "wrong"}).status_code == 401
 
     # 9. 계정이 있어도 관리 권한이 없으면 수집 관리는 막힌다
     fake_home = str((Path("data") / "_test_home").resolve())

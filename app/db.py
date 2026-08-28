@@ -73,6 +73,10 @@ def connect(path=DB_PATH):
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(SCHEMA)
+    # 이미 쓰던 DB 에 컬럼만 얹는다 (CREATE TABLE IF NOT EXISTS 는 컬럼을 안 늘린다)
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(links)")}
+    if "token" not in cols:
+        conn.execute("ALTER TABLE links ADD COLUMN token TEXT")
     return conn
 
 
@@ -311,11 +315,20 @@ def redeem_pair_code(conn, code, agent, identity):
     if not row:
         return None
     conn.execute("DELETE FROM pair_codes WHERE code=?", (code.strip().upper(),))
+    tok = secrets.token_urlsafe(32)
     conn.execute(
-        "INSERT OR REPLACE INTO links VALUES (?,?,?,?,?,?)",
-        (row["user_id"], row["user_name"], agent, identity, now(), row["is_manager"]),
+        "INSERT OR REPLACE INTO links (user_id,user_name,agent,identity,linked_at,is_manager,token)"
+        " VALUES (?,?,?,?,?,?,?)",
+        (row["user_id"], row["user_name"], agent, identity, now(), row["is_manager"], tok),
     )
-    return row["user_id"], row["user_name"]
+    return row["user_id"], row["user_name"], tok
+
+
+def link_by_token(conn, tok):
+    """원격 콘솔의 신분증. 없으면 None."""
+    if not tok:
+        return None
+    return conn.execute("SELECT * FROM links WHERE token=?", (tok,)).fetchone()
 
 
 def get_link(conn, user_id):

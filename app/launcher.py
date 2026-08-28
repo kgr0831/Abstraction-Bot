@@ -36,6 +36,7 @@ from starlette.responses import FileResponse, HTMLResponse, JSONResponse
 from starlette.routing import Route
 
 import db
+import remote
 
 load_dotenv()
 
@@ -47,7 +48,7 @@ MASCOT_DIRS = (PROJECT / "data" / "mascot", ROOT / "mascot")
 SESSION = PROJECT / "data" / "session.json"
 ACCOUNTS = db.ACCOUNTS_PATH
 PORT = int(os.getenv("LAUNCHER_PORT", "8787"))
-SERVER_URL = os.getenv("SERVER_URL", "http://127.0.0.1:%d" % PORT)
+SERVER_URL = remote.SERVER_URL
 
 AGENTS = {
     "claude": {
@@ -270,6 +271,52 @@ def do_login(job_id, agent):
     job["done"] = True
 
 
+# --- 인증 · 프록시 -----------------------------------------------------------
+
+def auth_link(request):
+    """원격 콘솔이 보낸 토큰으로 사용자를 식별한다. 토큰이 없으면 None."""
+    tok = request.headers.get("X-Abstraction-Token", "")
+    if not tok:
+        return None
+    conn = db.connect()
+    try:
+        return db.link_by_token(conn, tok)
+    finally:
+        conn.close()
+
+
+def allowed(request):
+    # ponytail: 토큰이거나 루프백이거나. 팀 밖에 공개할 거면 제대로 된 인증이 필요하다
+    host = (request.client.host if request.client else "") or ""
+    return bool(auth_link(request)) or host in ("127.0.0.1", "::1", "localhost")
+
+
+async def forward(request):
+    """클라이언트 모드 — 이 요청을 그대로 서버로 넘긴다."""
+    body = None
+    if request.method == "POST":
+        try:
+            body = await request.json()
+        except (ValueError, TypeError):
+            body = {}
+    st, out = await run_in_threadpool(
+        remote._req, request.method, request.url.path,
+        dict(request.query_params) if request.method == "GET" else None, body)
+    return JSONResponse(out, status_code=st)
+
+
+def shared(fn):
+    """서버의 DB·봇이 필요한 엔드포인트. 클라이언트면 넘기고, 서버면 신분을 본다."""
+    async def wrap(request):
+        if remote.is_remote():
+            return await forward(request)
+        if not allowed(request):
+            return JSONResponse({"error": "인증이 필요합니다."}, status_code=401)
+        return await fn(request)
+    wrap.__name__ = getattr(fn, "__name__", "shared")
+    return wrap
+
+
 # --- 기본 라우트 ------------------------------------------------------------
 
 async def page(request):
@@ -288,7 +335,7 @@ async def api_me(request):
     """이 콘솔이 누구 것이고 무엇을 할 수 있는가."""
     acct = primary_account()
     out = {"account": acct, "linked": False, "user_name": None, "is_manager": False,
-           "bot_ready": False, "server_url": SERVER_URL}
+           "bot_ready": False, "server_url": SERVER_URL, "remote": remote.is_remote()}
     b = bot_bridge()
     out["bot_ready"] = bool(b and b.ready())
     out["icon"] = await run_in_threadpool(bot_icon)
@@ -371,9 +418,12 @@ async def api_link(request):
 
 
 async def api_job(request):
-    return JSONResponse(
-        jobs.get(request.path_params["job_id"], {"lines": ["없는 작업"], "done": True})
-    )
+    jid = request.path_params["job_id"]
+    if jid in jobs:                      # 로그인 등 이 PC 에서 도는 작업
+        return JSONResponse(jobs[jid])
+    if remote.is_remote():               # 백필처럼 서버에서 도는 작업
+        return await forward(request)
+    return JSONResponse({"lines": ["없는 작업"], "done": True})
 
 
 async def api_unlink(request):
@@ -407,7 +457,7 @@ async def api_pair(request):
             {"ok": False, "error": "코드가 틀렸거나 만료됐습니다. 디스코드에서 /시작 을 다시 실행하세요."},
             400,
         )
-    return JSONResponse({"ok": True, "user_name": got[1]})
+    return JSONResponse({"ok": True, "user_name": got[1], "token": got[2]})
 
 
 async def api_discord_link(request):
@@ -481,26 +531,7 @@ async def api_mcp_remove(request):
 
 # --- 대화 -------------------------------------------------------------------
 
-def _rows_to_json(rows):
-    out = []
-    for r in rows:
-        keys = r.keys()
-        out.append({
-            "id": r["id"],
-            "author": r["author_name"],
-            "content": r["content"],
-            "at": datetime.fromisoformat(r["created_at"]).astimezone(db.KST).isoformat(),
-            "channel": r["channel_name"],
-            "reply_to": r["reply_to_id"] if "reply_to_id" in keys else None,
-            "thread": r["thread_id"] if "thread_id" in keys else None,
-            "files": len(json.loads(r["attachments"])) if
-                     ("attachments" in keys and r["attachments"]) else 0,
-            "guild_id": r["guild_id"],
-            "channel_id": r["channel_id"],
-        })
-    return out
-
-
+@shared
 async def api_channels(request):
     conn = db.connect()
     try:
@@ -509,6 +540,7 @@ async def api_channels(request):
         conn.close()
 
 
+@shared
 async def api_conversation(request):
     q = request.query_params
     channel, date, until = q.get("channel", ""), q.get("date", ""), q.get("until", "")
@@ -524,9 +556,10 @@ async def api_conversation(request):
         rows = db.get_conversation(conn, channel, date, until or None)
     finally:
         conn.close()
-    return JSONResponse({"messages": _rows_to_json(rows)})
+    return JSONResponse({"messages": remote.to_json(rows)})
 
 
+@shared
 async def api_search(request):
     q = request.query_params
     if not q.get("q"):
@@ -539,9 +572,10 @@ async def api_search(request):
         )
     finally:
         conn.close()
-    return JSONResponse({"messages": _rows_to_json(rows)})
+    return JSONResponse({"messages": remote.to_json(rows)})
 
 
+@shared
 async def api_days(request):
     q = request.query_params
     conn = db.connect()
@@ -554,15 +588,17 @@ async def api_days(request):
 
 # --- 수집 관리 (서버 관리 권한자만) ------------------------------------------
 
-def _manager_ok():
-    acct = primary_account()
-    if not acct:
-        return False, "에이전트 계정을 먼저 연결하세요."
-    conn = db.connect()
-    try:
-        row = db.link_by_identity(conn, acct["identity"])
-    finally:
-        conn.close()
+def _manager_ok(request=None):
+    row = auth_link(request) if request is not None else None
+    if row is None:
+        acct = primary_account()
+        if not acct:
+            return False, "에이전트 계정을 먼저 연결하세요."
+        conn = db.connect()
+        try:
+            row = db.link_by_identity(conn, acct["identity"])
+        finally:
+            conn.close()
     if not row:
         return False, "디스코드 연동을 먼저 하세요."
     if not row["is_manager"]:
@@ -570,6 +606,7 @@ def _manager_ok():
     return True, None
 
 
+@shared
 async def api_guild_channels(request):
     b = bot_bridge()
     if not b:
@@ -580,8 +617,9 @@ async def api_guild_channels(request):
         return JSONResponse({"error": str(e)}, 503)
 
 
+@shared
 async def api_collect(request):
-    ok, why = _manager_ok()
+    ok, why = _manager_ok(request)
     if not ok:
         return JSONResponse({"ok": False, "error": why}, 403)
     b = bot_bridge()
@@ -600,8 +638,9 @@ async def api_collect(request):
         return JSONResponse({"ok": False, "error": str(e)}, 400)
 
 
+@shared
 async def api_backfill(request):
-    ok, why = _manager_ok()
+    ok, why = _manager_ok(request)
     if not ok:
         return JSONResponse({"ok": False, "error": why}, 403)
     b = bot_bridge()
@@ -641,12 +680,15 @@ async def api_backfill(request):
     return JSONResponse({"ok": True, "id": job_id, "span": span})
 
 
+@shared
 async def api_optout(request):
     """내 수집 거부 상태. 디스코드 연동이 돼 있어야 누구인지 안다."""
+    row = auth_link(request)
     acct = primary_account()
     conn = db.connect()
     try:
-        row = db.link_by_identity(conn, acct["identity"]) if acct else None
+        if row is None:
+            row = db.link_by_identity(conn, acct["identity"]) if acct else None
         if not row:
             return JSONResponse({"ok": False, "error": "디스코드 연동을 먼저 하세요."}, 400)
         if request.method == "GET":
@@ -663,6 +705,7 @@ async def api_optout(request):
         conn.close()
 
 
+@shared
 async def api_leaderboard(request):
     days = request.query_params.get("days", "7")
     channel = request.query_params.get("channel") or None

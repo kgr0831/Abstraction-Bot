@@ -16,6 +16,28 @@
 
 봇에는 LLM 호출도 노션 클라이언트도 없다. 요약 프롬프트를 고쳐도 봇을 재배포하지 않는다.
 
+## 두 가지 모드
+
+봇과 DB 는 **한 곳에서만** 돈다. 콘솔은 각자 PC 에서 뜬다.
+
+| | `SERVER_URL` | 하는 일 |
+|---|---|---|
+| **서버 모드** | 비움 (기본) | 봇 + DB + API + 콘솔. 한 명만 |
+| **클라이언트 모드** | 봇이 도는 주소 | 콘솔만. 조회는 서버로 넘긴다 |
+
+클라이언트 모드에서도 **에이전트 CLI 는 각자 PC 에서 돈다** — 자격증명은 여전히
+자기 PC 를 안 떠난다. 서버가 갖는 건 대화 로그와 연동 토큰뿐이다.
+
+주소는 `SERVER_URL` 환경변수 또는 `data/config.json` 의 `server_url` 로 준다.
+
+```json
+{ "server_url": "https://내서버주소" }
+```
+
+**인증:** 페어링에 성공하면 서버가 클라이언트 토큰을 발급해 `data/session.json` 에
+남긴다. 이후 원격 요청은 이 토큰으로 신분을 증명한다. 루프백(자기 PC)에서 온
+요청은 토큰 없이 통과한다.
+
 ## 설치 · 실행
 
 ```bash
@@ -131,8 +153,8 @@ app/
   launcher.py       콘솔 API · 페어링 서버 (127.0.0.1:8787)
   console.html      콘솔 UI (탭 4개). 요청마다 읽으므로 고치고 새로고침만 하면 된다
                     디자인 토큰은 orca 와 동일 (shadcn/ui neutral)
+  remote.py         로컬/원격 판단과 조회. launcher 와 mcp_server 가 같이 쓴다
 tests/              test_db · test_mcp · test_launcher
-.claude/skills/     daily-report · idea-extract
 .mcp.json           Claude Code MCP 등록 (uv run 이라 경로 무관)
 data/               SQLite · 등록된 계정 (gitignore됨)
 docs/               기획 문서 (로컬 전용, gitignore됨)
@@ -145,7 +167,7 @@ docs/               기획 문서 (로컬 전용, gitignore됨)
 | `DISCORD_TOKEN` | — | 필수 |
 | `LAUNCHER_PORT` | `8787` | 콘솔 포트 |
 | `LAUNCHER_URL` | `http://127.0.0.1:8787` | 봇이 안내하는 콘솔 주소 |
-| `SERVER_URL` | 자기 자신 | 페어링을 받는 쪽. **봇을 다른 머신에 올리면 이것만 바꾼다** |
+| `SERVER_URL` | 자기 자신 | 비우면 서버 모드, 넣으면 클라이언트 모드 |
 | `COLLECTOR_DB` · `COLLECTOR_ACCOUNTS` | `data/` 아래 | 테스트에서 갈아끼운다 |
 
 ## 테스트
@@ -171,4 +193,6 @@ uv run python tests/test_db.py && uv run python tests/test_mcp.py && uv run pyth
 - **콘솔 디자인은 orca 를 따랐다.** `app/console.html` 상단 토큰은 orca 리소스에서 그대로
   가져온 shadcn/ui neutral 값이다 (primary `#171717`/`#e5e5e5`, radius `.625rem`,
   사이드바 `239px`). 라이트/다크 둘 다 지원한다. 로고와 파비콘은 봇 아바타를 쓴다.
+- **로컬이냐 원격이냐는 `remote.py` 한 곳에서만 판단한다.** 조회 응답 모양도 거기서
+  통일한다 — 로컬 SQLite 행과 서버 JSON 이 다르면 원격 모드가 조용히 깨진다.
 - **페어링 요청은 stdlib `urllib`.** 호출 한 곳 때문에 HTTP 클라이언트를 의존성에 넣지 않는다.

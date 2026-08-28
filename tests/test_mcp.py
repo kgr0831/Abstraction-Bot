@@ -58,7 +58,8 @@ def main():
 
     # 페어링 코드를 소진하면 통과
     code, _ = db.new_pair_code(conn, "d1", "가람")
-    assert db.redeem_pair_code(conn, code, "claude", "me@x.com") == ("d1", "가람")
+    got = db.redeem_pair_code(conn, code, "claude", "me@x.com")
+    assert got[:2] == ("d1", "가람") and len(got[2]) > 20, got
     assert db.redeem_pair_code(conn, code, "claude", "me@x.com") is None, "코드가 재사용됨"
     assert "수집 중인 채널이 없습니다" in m.list_channels()
     db.add_channel(conn, "c1", "g1", "아이디어")
