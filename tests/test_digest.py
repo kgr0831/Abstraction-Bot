@@ -66,6 +66,55 @@ def main():
     finally:
         conn.close()
 
+    # 2b. 수제 HTTP 의 요청/응답 모양. 여기가 틀리면 결산이 조용히 통계로 강등된다.
+    import io
+    import json as _json
+    import urllib.request
+
+    sent = {}
+
+    def fake_urlopen(req, timeout=None):
+        sent["url"] = req.full_url
+        sent["headers"] = {k.lower(): v for k, v in req.header_items()}
+        sent["body"] = _json.loads(req.data.decode("utf-8"))
+        return io.BytesIO(_json.dumps(sent["reply"]).encode("utf-8"))
+
+    real = urllib.request.urlopen
+    urllib.request.urlopen = fake_urlopen
+    try:
+        sent["reply"] = {"content": [{"type": "thinking", "thinking": "..."},
+                                     {"type": "text", "text": "요약본"}],
+                         "stop_reason": "end_turn"}
+        os.environ["ANTHROPIC_API_KEY"] = "k"
+        assert digest._anthropic("claude-opus-5", "대화") == "요약본"
+        assert sent["url"].endswith("/v1/messages")
+        assert sent["headers"]["x-api-key"] == "k"
+        assert sent["headers"]["anthropic-version"] == "2023-06-01"
+        assert sent["body"]["model"] == "claude-opus-5"
+        assert sent["body"]["thinking"] == {"type": "adaptive"}
+        assert "budget_tokens" not in _json.dumps(sent["body"]), "제거된 파라미터가 남음"
+        assert sent["body"]["messages"][0]["content"].endswith("대화")
+
+        # 거절은 조용히 넘기지 않는다
+        sent["reply"] = {"content": [], "stop_reason": "refusal"}
+        try:
+            digest._anthropic("claude-opus-5", "x")
+            raise AssertionError("거절을 못 잡음")
+        except RuntimeError:
+            pass
+
+        sent["reply"] = {"output": [{"type": "message", "content": [
+            {"type": "output_text", "text": "테라 요약"}]}]}
+        os.environ["OPENAI_API_KEY"] = "k2"
+        assert digest._openai("gpt-5.6-terra", "대화") == "테라 요약"
+        assert sent["url"].endswith("/v1/responses")
+        assert sent["headers"]["authorization"] == "Bearer k2"
+        assert sent["body"]["reasoning"] == {"effort": "medium"}
+    finally:
+        urllib.request.urlopen = real
+        os.environ.pop("ANTHROPIC_API_KEY", None)
+        os.environ.pop("OPENAI_API_KEY", None)
+
     # 3. 보존 기간 — 지난 것만 지우고, 0 이면 아무것도 안 지운다
     from datetime import datetime, timedelta, timezone
     from types import SimpleNamespace

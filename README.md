@@ -70,6 +70,15 @@ https://<서버>/c/<내토큰>
 강등된다. 키 없이도 돌아간다. 없는 모델 ID 는 저장 단계에서 막는다 — 안 그러면
 결산 시각에 조용히 실패한다.
 
+## 배포
+
+무료로 24시간 돌리는 법은 [DEPLOY.md](DEPLOY.md) 에 있다 —
+**DisHost(봇 호스팅) + Cloudflare Tunnel** 조합이다.
+
+실측 **95MB / 패키지 57MB** 라 128MB 짜리 무료 티어에 여유 있게 들어간다.
+그러려고 LLM 은 공식 SDK(42MB) 대신 stdlib `urllib` 로 부른다 — 하루 한 번
+HTTP POST 한 방에 SDK 두 개를 지고 갈 이유가 없다.
+
 ## 두 가지 모드
 
 봇과 DB 는 **한 곳에서만** 돈다. 콘솔은 각자 PC 에서 뜬다.
@@ -204,7 +213,9 @@ MCP 툴 4개는 전부 앞단에서 연동을 확인한다. 이 PC에 등록된 
 
 ```
 run.py              진입점 — 봇 + 콘솔을 한 프로세스로
-start.bat           실행. 창을 닫으면 둘 다 종료
+start.bat           로컬 실행. 창을 닫으면 둘 다 종료
+Dockerfile          컨테이너 배포용
+deploy/start.sh     DisHost(Pterodactyl) 시작 — cloudflared + 앱을 같이 띄운다
 app/
   bot.py            수집 봇 + 콘솔용 브리지. LLM 없음
   db.py             스키마 + 공용 쿼리. UTC 저장, KST 조회
@@ -229,6 +240,7 @@ docs/               기획 문서 (로컬 전용, gitignore됨)
 | `LAUNCHER_URL` | `http://127.0.0.1:8787` | 봇이 안내하는 콘솔 주소 |
 | `SERVER_URL` | 자기 자신 | 비우면 서버 모드, 넣으면 클라이언트 모드 |
 | `PUBLIC_SERVER` | 없음 | `1` 이면 루프백 무토큰 예외를 끈다. **터널·호스팅이면 필수** |
+| `TUNNEL_TOKEN` | 없음 | cloudflared 고정 주소용 ([DEPLOY.md](DEPLOY.md)) |
 | `ANTHROPIC_API_KEY` | 없음 | Claude 계열 결산용 |
 | `OPENAI_API_KEY` | 없음 | Codex(Terra) 결산용 |
 | `DIGEST_MODEL` | `claude-opus-5` | 콘솔 설정이 우선. 콘솔을 안 쓸 때의 기본값 |
@@ -261,6 +273,9 @@ uv run python tests/test_db.py && uv run python tests/test_mcp.py && uv run pyth
   통일한다 — 로컬 SQLite 행과 서버 JSON 이 다르면 원격 모드가 조용히 깨진다.
 - **`Mount` 는 경로 prefix 를 안 벗긴다.** `root_path` 만 채우므로 `/c/<토큰>` 에서
   토큰을 직접 잘라내야 한다. 안 그러면 토큰 자리에 `c` 가 잡혀 전부 401 이 된다.
+- **LLM 은 stdlib `urllib` 로 부른다.** anthropic·openai 공식 SDK 가 42MB 인데
+  하루 한 번 HTTP POST 한 방 때문에 지고 갈 무게가 아니다. 128MB 무료 호스팅에
+  들어가느냐 마느냐가 여기서 갈린다. 요청·응답 모양은 `test_digest.py` 가 잡는다.
 - **저장소는 SQLite 로 충분하다.** 보존 90일 · 하루 500건이면 파일이 14MB 를 안 넘는다.
   Postgres(Supabase 등)가 필요해지는 건 호스팅이 영구 디스크를 안 줄 때뿐이다.
 - **결산 게시 전에 `digest_last` 를 먼저 찍는다.** 실패해도 같은 날 여러 번 올리지 않는다.

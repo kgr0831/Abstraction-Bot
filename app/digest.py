@@ -7,7 +7,11 @@
 통계 결산으로 자동 강등한다 — 키 없이도 돌아간다.
 """
 
+import json
 import os
+import time
+import urllib.error
+import urllib.request
 from collections import Counter
 
 import db
@@ -119,31 +123,61 @@ def key_present(mid=None):
     return bool(os.getenv(PROVIDER_KEY.get(spec(mid)["provider"], "ANTHROPIC_API_KEY")))
 
 
-def _anthropic(mid, body):
-    import anthropic
+def _post(url, headers, body, tries=3, timeout=180):
+    """SDK 없이 한 방 쏜다. 하루 한 번이라 이 정도면 충분하고,
+    공식 SDK 두 개(42MB)를 128MB 짜리 호스팅에 지고 갈 이유가 없다."""
+    data = json.dumps(body).encode("utf-8")
+    for i in range(tries):
+        req = urllib.request.Request(
+            url, data=data, method="POST",
+            headers={"content-type": "application/json", **headers})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.loads(r.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", "replace")[:300]
+            retryable = e.code in (408, 409, 429) or e.code >= 500
+            if retryable and i < tries - 1:
+                time.sleep(2 ** i * 3)
+                continue
+            raise RuntimeError("%s %s" % (e.code, detail))
+        except (urllib.error.URLError, OSError):
+            if i < tries - 1:
+                time.sleep(2 ** i * 3)
+                continue
+            raise
+    raise RuntimeError("재시도 소진")
 
-    resp = anthropic.Anthropic().messages.create(
-        model=mid,
-        max_tokens=8000,
-        thinking={"type": "adaptive"},
-        output_config={"effort": "medium"},
-        system=SYSTEM,
-        messages=[{"role": "user", "content": PROMPT + body}],
+
+def _anthropic(mid, body):
+    out = _post(
+        "https://api.anthropic.com/v1/messages",
+        {"x-api-key": os.environ["ANTHROPIC_API_KEY"], "anthropic-version": "2023-06-01"},
+        {"model": mid, "max_tokens": 8000, "system": SYSTEM,
+         "thinking": {"type": "adaptive"},
+         "output_config": {"effort": "medium"},
+         "messages": [{"role": "user", "content": PROMPT + body}]},
     )
-    return "".join(b.text for b in resp.content if b.type == "text").strip()
+    if out.get("stop_reason") == "refusal":
+        raise RuntimeError("모델이 요청을 거절했습니다")
+    return "".join(b.get("text", "") for b in out.get("content", [])
+                   if b.get("type") == "text").strip()
 
 
 def _openai(mid, body):
-    import openai
-
-    resp = openai.OpenAI().responses.create(
-        model=mid,
-        instructions=SYSTEM,
-        input=PROMPT + body,
-        reasoning={"effort": "medium"},
-        max_output_tokens=8000,
+    out = _post(
+        "https://api.openai.com/v1/responses",
+        {"authorization": "Bearer " + os.environ["OPENAI_API_KEY"]},
+        {"model": mid, "instructions": SYSTEM, "input": PROMPT + body,
+         "reasoning": {"effort": "medium"}, "max_output_tokens": 8000},
     )
-    return (getattr(resp, "output_text", "") or "").strip()
+    # Responses API 는 output 배열 안에 message -> content -> output_text 로 들어온다
+    parts = []
+    for item in out.get("output", []):
+        for c in item.get("content", []) or []:
+            if c.get("type") in ("output_text", "text") and c.get("text"):
+                parts.append(c["text"])
+    return "".join(parts).strip()
 
 
 def summarize(rows, channel, date):
