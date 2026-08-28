@@ -26,21 +26,22 @@ def rows(n=6):
 
 
 def main():
-    # 1. 통계 결산은 키 없이도 나온다
-    key = os.environ.pop("ANTHROPIC_API_KEY", None)
+    # 1. 연동된 CLI 가 없으면 통계 결산으로 강등된다 (실제 CLI 는 안 부른다)
+    import db
+    real_accounts = db.local_accounts
+    db.local_accounts = lambda: []
     try:
-        assert digest.summarize(rows(), "아이디어", "2026-08-27") is None, "키 없이 LLM 을 부름"
+        assert not digest.cli_ready()
+        assert digest.summarize(rows(), "아이디어", "2026-08-27") is None, "CLI 없이 부름"
         text = digest.stats(rows(), "아이디어", "2026-08-27")
         assert "일일 결산" in text and "6건" in text, text
         assert "김가람 — 3건" in text, text
         assert "discord.com/channels/g1/c1/100" in text, text
         assert digest.stats([], "아이디어", "2026-08-27") is None
     finally:
-        if key:
-            os.environ["ANTHROPIC_API_KEY"] = key
+        db.local_accounts = real_accounts
 
-    # 2. 모델별 프로바이더와 필요한 키가 맞물린다
-    import db
+    # 2. 모델별 프로바이더
     conn = db.connect()
     try:
         assert digest.model() == digest.DEFAULT_MODEL
@@ -50,70 +51,73 @@ def main():
         assert digest.spec()["provider"] == "openai"
         # 모르는 모델은 anthropic 으로 떨어뜨려 최소한 죽지는 않게
         assert digest.spec("없는모델")["provider"] == "anthropic"
-        saved = {k: os.environ.pop(k, None) for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY")}
+        # 고른 모델의 제공자에 맞는 CLI 를 고른다
+        real = db.local_accounts
+        db.local_accounts = lambda: [
+            {"agent": "claude", "identity": "a", "home": "A"},
+            {"agent": "codex", "identity": "b", "home": "B"},
+        ]
         try:
-            assert not digest.key_present("claude-opus-5")
-            assert not digest.key_present("gpt-5.6-terra")
-            os.environ["OPENAI_API_KEY"] = "x"
-            assert digest.key_present("gpt-5.6-terra")
-            assert not digest.key_present("claude-opus-5"), "프로바이더 키가 섞임"
+            assert digest.linked_cli()["agent"] == "codex", "terra 인데 claude 를 고름"
+            db.set_setting(conn, "digest_model", "claude-opus-5")
+            assert digest.linked_cli()["agent"] == "claude"
         finally:
-            os.environ.pop("OPENAI_API_KEY", None)
-            for k, v in saved.items():
-                if v:
-                    os.environ[k] = v
+            db.local_accounts = real
         db.set_setting(conn, "digest_model", None)
     finally:
         conn.close()
 
-    # 2b. 수제 HTTP 의 요청/응답 모양. 여기가 틀리면 결산이 조용히 통계로 강등된다.
-    import io
-    import json as _json
-    import urllib.request
+    # 2b. CLI 호출 — API 키를 쓰지 않고 연동된 계정 홈으로 부른다
+    import subprocess as _sp
 
-    sent = {}
+    seen = {}
 
-    def fake_urlopen(req, timeout=None):
-        sent["url"] = req.full_url
-        sent["headers"] = {k.lower(): v for k, v in req.header_items()}
-        sent["body"] = _json.loads(req.data.decode("utf-8"))
-        return io.BytesIO(_json.dumps(sent["reply"]).encode("utf-8"))
+    def fake_run(cmd, **kw):
+        seen["cmd"] = cmd
+        seen["env"] = kw.get("env") or {}
+        seen["cwd"] = kw.get("cwd")
+        seen["stdin"] = kw.get("input")
+        seen["shell"] = kw.get("shell")
+        return _sp.CompletedProcess(cmd, 0, "요약본", "")
 
-    real = urllib.request.urlopen
-    urllib.request.urlopen = fake_urlopen
+    real_run, real_accounts = _sp.run, db.local_accounts
+    _sp.run = fake_run
+    db.local_accounts = lambda: [{"agent": "claude", "identity": "me@x.com", "home": "HOME"}]
     try:
-        sent["reply"] = {"content": [{"type": "thinking", "thinking": "..."},
-                                     {"type": "text", "text": "요약본"}],
-                         "stop_reason": "end_turn"}
-        os.environ["ANTHROPIC_API_KEY"] = "k"
-        assert digest._anthropic("claude-opus-5", "대화") == "요약본"
-        assert sent["url"].endswith("/v1/messages")
-        assert sent["headers"]["x-api-key"] == "k"
-        assert sent["headers"]["anthropic-version"] == "2023-06-01"
-        assert sent["body"]["model"] == "claude-opus-5"
-        assert sent["body"]["thinking"] == {"type": "adaptive"}
-        assert "budget_tokens" not in _json.dumps(sent["body"]), "제거된 파라미터가 남음"
-        assert sent["body"]["messages"][0]["content"].endswith("대화")
+        assert digest.cli_ready()
+        assert digest._cli("시스템", "본문") == "요약본"
+        cmd = seen["cmd"]
+        assert cmd[0].lower().endswith(("claude", "claude.exe")), cmd[0]
+        assert "-p" in cmd, cmd
+        assert "--append-system-prompt" in cmd and "시스템" in cmd
+        # 본문은 stdin 으로 — 인자로 주면 Windows 32KB 한계와 줄바꿈에 걸린다
+        assert seen["stdin"] == "본문", seen["stdin"]
+        assert "본문" not in cmd, "본문이 명령행 인자로 들어감"
+        assert not seen.get("shell"), "shell 을 씀 — 인용 사고 위험"
+        assert seen["env"]["CLAUDE_CONFIG_DIR"] == "HOME", "계정 홈이 안 물림"
+        # 수집된 메시지는 신뢰할 수 없는 입력이라 도구가 막혀 있어야 한다
+        assert "--disallowed-tools" in cmd
+        for t in ("Read", "Write", "Bash", "WebFetch"):
+            assert t in cmd, t
+        assert seen["cwd"] and "abst-cli-" in str(seen["cwd"]), "빈 임시 폴더에서 안 돌림"
+        # API 키는 어디에도 안 쓴다
+        assert not hasattr(digest, "_anthropic") and not hasattr(digest, "_post")
 
-        # 거절은 조용히 넘기지 않는다
-        sent["reply"] = {"content": [], "stop_reason": "refusal"}
+        # 실패는 조용히 삼키지 않고 올린다
+        _sp.run = lambda cmd, **kw: _sp.CompletedProcess(cmd, 1, "", "boom")
         try:
-            digest._anthropic("claude-opus-5", "x")
-            raise AssertionError("거절을 못 잡음")
-        except RuntimeError:
-            pass
+            digest._cli("s", "p")
+            raise AssertionError("실패를 안 잡음")
+        except RuntimeError as e:
+            assert "boom" in str(e)
 
-        sent["reply"] = {"output": [{"type": "message", "content": [
-            {"type": "output_text", "text": "테라 요약"}]}]}
-        os.environ["OPENAI_API_KEY"] = "k2"
-        assert digest._openai("gpt-5.6-terra", "대화") == "테라 요약"
-        assert sent["url"].endswith("/v1/responses")
-        assert sent["headers"]["authorization"] == "Bearer k2"
-        assert sent["body"]["reasoning"] == {"effort": "medium"}
+        # CLI 가 없으면 묻기는 안내를 돌려준다
+        db.local_accounts = lambda: []
+        assert not digest.cli_ready()
+        text, err = digest.ask([{"role": "user", "content": "?"}], "자료")
+        assert text is None and "연동된 CLI" in err
     finally:
-        urllib.request.urlopen = real
-        os.environ.pop("ANTHROPIC_API_KEY", None)
-        os.environ.pop("OPENAI_API_KEY", None)
+        _sp.run, db.local_accounts = real_run, real_accounts
 
     # 3. 보존 기간 — 지난 것만 지우고, 0 이면 아무것도 안 지운다
     from datetime import datetime, timedelta, timezone

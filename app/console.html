@@ -841,10 +841,10 @@ async function viewCollect(){
   if(d.models && !d.has_key){
     const cur = (d.models||[]).find(m=>m.id===d.model) || {};
     dg.appendChild(el('div','card','<div><div class="who">'+
-      '<span class="badge y">요약 키 없음</span></div><div class="meta">'+
-      esc(cur.label||d.model)+' 를 쓰려면 '+
-      (d.provider==='openai'?'OPENAI_API_KEY':'ANTHROPIC_API_KEY')+
-      ' 가 필요합니다. 없으면 통계 결산만 올라갑니다.</div></div>'));
+      '<span class="badge y">연동된 CLI 없음</span></div><div class="meta">'+
+      esc(cur.label||d.model)+' 로 정리하려면 <b>연결</b> 탭에서 '+
+      (d.provider==='openai'?'Codex':'Claude')+
+      ' 계정을 붙이세요. 없으면 통계 결산만 올라갑니다.</div></div>'));
   }
 
   if(d.channel_name){

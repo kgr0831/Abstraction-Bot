@@ -1,24 +1,21 @@
 """일일 결산 — 그날 대화를 정리해 디스코드에 게시할 본문을 만든다.
 
-자동 결산은 특정 사용자의 Claude 를 쓸 수 없다 (그 사람이 앱을 꺼놨을 수 있다).
-그래서 여기만 서버 키를 쓴다. 개인 조회·정리는 여전히 각자 CLI 다.
-
-고른 모델의 프로바이더 키(ANTHROPIC_API_KEY / OPENAI_API_KEY)가 없으면
-통계 결산으로 자동 강등한다 — 키 없이도 돌아간다.
+요약은 콘솔에 연동된 CLI(claude / codex)를 비대화로 불러서 한다.
+API 키를 쓰지 않는다 — 그 계정의 구독으로 돈다.
+연동된 CLI 가 없으면 통계 결산으로 자동 강등한다.
 """
 
-import json
 import os
-import time
-import urllib.error
-import urllib.request
+import shutil
+import subprocess
+import tempfile
 from collections import Counter
 
 import db
 import remote
 
-# 고를 수 있는 모델. 가격은 100만 토큰당 (입력/출력).
-# 하루 500건 ≈ 입력 20K + 출력 1.5K 기준의 월 비용을 같이 적어둔다.
+# 고를 수 있는 모델. 연동한 CLI 가 그 계정의 구독으로 돌리므로 별도 과금이 없다.
+# price/month 는 API 로 직접 부를 때의 참고값일 뿐이다.
 MODELS = [
     {"id": "claude-opus-5", "label": "Opus 5", "provider": "anthropic",
      "price": "$5 / $25", "month": "약 6,000원",
@@ -34,9 +31,8 @@ MODELS = [
      "note": "가장 쌈. 긴 대화에선 묶음 품질이 떨어짐"},
     {"id": "gpt-5.6-terra", "label": "Codex (Terra)", "provider": "openai",
      "price": "—", "month": "—",
-     "note": "codex CLI 가 쓰는 모델. OPENAI_API_KEY 로 동작"},
+     "note": "연동한 Codex 계정으로 돈다"},
 ]
-PROVIDER_KEY = {"anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"}
 DEFAULT_MODEL = "claude-opus-5"
 MODEL_IDS = {m["id"] for m in MODELS}
 
@@ -107,9 +103,9 @@ def stats(rows, channel, date):
         "**많이 말한 사람**",
     ]
     lines += ["· %s — %d건" % (n, c) for n, c in who.most_common(5)]
-    need = PROVIDER_KEY.get(spec()["provider"], "ANTHROPIC_API_KEY")
     lines += ["", "[대화 처음으로 가기](%s)" % head, "",
-              "_요약 키가 없어 통계만 냅니다. `%s` 를 넣으면 주제별 정리가 붙습니다._" % need]
+              "_연동된 CLI 가 없어 통계만 냅니다. 콘솔의 '연결' 탭에서 "
+              "Claude 또는 Codex 를 붙이면 주제별 정리가 붙습니다._"]
     return "\n".join(lines)
 
 
@@ -120,75 +116,73 @@ def spec(mid=None):
 
 
 def key_present(mid=None):
-    return bool(os.getenv(PROVIDER_KEY.get(spec(mid)["provider"], "ANTHROPIC_API_KEY")))
+    """이름은 남겨두지만 이제는 '연동된 CLI 가 있나' 를 뜻한다. API 키는 안 쓴다."""
+    return cli_ready()
 
 
-def _post(url, headers, body, tries=3, timeout=180):
-    """SDK 없이 한 방 쏜다. 하루 한 번이라 이 정도면 충분하고,
-    공식 SDK 두 개(42MB)를 128MB 짜리 호스팅에 지고 갈 이유가 없다."""
-    data = json.dumps(body).encode("utf-8")
-    for i in range(tries):
-        req = urllib.request.Request(
-            url, data=data, method="POST",
-            headers={"content-type": "application/json", **headers})
+# 연동된 CLI 로 부른다. API 키가 없어도 그 계정의 구독으로 돈다.
+# 수집된 디스코드 메시지는 신뢰할 수 없는 입력이라 도구를 전부 막고,
+# 빈 임시 디렉터리에서 돌린다 — 인젝션이 통해도 만질 게 없다.
+TOOLS_OFF = ["Read", "Write", "Edit", "NotebookEdit", "Bash", "Glob", "Grep",
+             "WebFetch", "WebSearch", "Task", "TodoWrite"]
+HOME_ENV = {"claude": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME"}
+CLI_TIMEOUT = int(os.getenv("CLI_TIMEOUT", "600"))
+
+
+def linked_cli():
+    """콘솔에 등록된 CLI 계정. 고른 모델의 제공자와 맞는 걸 우선 고른다."""
+    accts = db.local_accounts()
+    if not accts:
+        return None
+    want = spec()["provider"]
+    agent = "codex" if want == "openai" else "claude"
+    return next((a for a in accts if a.get("agent") == agent), accts[0])
+
+
+def cli_ready():
+    return linked_cli() is not None
+
+
+def _cli(system, prompt, timeout=None):
+    """등록된 CLI 를 비대화로 부른다. 실패하면 RuntimeError.
+
+    프롬프트는 stdin 으로 넘긴다 — 명령행 인자로 주면 Windows 의 ~32KB 한계에
+    걸리고, 줄바꿈이 섞이면 셸에서 잘린다. 그래서 shell 도 쓰지 않는다.
+    """
+    acct = linked_cli()
+    if not acct:
+        raise RuntimeError("연동된 CLI 계정이 없습니다. 콘솔의 '연결' 탭에서 붙이세요.")
+    agent, home = acct["agent"], acct["home"]
+    mid = model()
+    if agent == "claude":
+        argv = ["claude", "-p", "--model", mid,
+                "--append-system-prompt", system, "--disallowed-tools"] + TOOLS_OFF
+        stdin = prompt
+    else:
+        argv = ["codex", "exec", "--model", mid]
+        stdin = system + "\n\n" + prompt      # codex 는 stdin 을 지시로 읽는다
+    exe = shutil.which(argv[0])
+    if not exe:
+        raise RuntimeError(
+            "%s CLI 를 찾을 수 없습니다. 이 서버에 설치돼 있어야 합니다." % argv[0])
+    argv[0] = exe
+    env = {**os.environ, HOME_ENV.get(agent, "CLAUDE_CONFIG_DIR"): str(home)}
+    with tempfile.TemporaryDirectory(prefix="abst-cli-") as cwd:
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as r:
-                return json.loads(r.read().decode("utf-8"))
-        except urllib.error.HTTPError as e:
-            detail = e.read().decode("utf-8", "replace")[:300]
-            retryable = e.code in (408, 409, 429) or e.code >= 500
-            if retryable and i < tries - 1:
-                time.sleep(2 ** i * 3)
-                continue
-            if e.code in (401, 403):
-                # 프로바이더 응답에 키 일부가 섞여 오므로 화면에는 안 내보낸다
-                raise RuntimeError(
-                    "API 키가 거부됐습니다 (%d). %s 를 확인하세요."
-                    % (e.code, PROVIDER_KEY.get(spec()["provider"], "API 키")))
-            raise RuntimeError("%s %s" % (e.code, detail))
-        except (urllib.error.URLError, OSError):
-            if i < tries - 1:
-                time.sleep(2 ** i * 3)
-                continue
-            raise
-    raise RuntimeError("재시도 소진")
-
-
-def _anthropic(mid, body):
-    out = _post(
-        "https://api.anthropic.com/v1/messages",
-        {"x-api-key": os.environ["ANTHROPIC_API_KEY"], "anthropic-version": "2023-06-01"},
-        {"model": mid, "max_tokens": 8000, "system": SYSTEM,
-         "thinking": {"type": "adaptive"},
-         "output_config": {"effort": "medium"},
-         "messages": [{"role": "user", "content": PROMPT + body}]},
-    )
-    if out.get("stop_reason") == "refusal":
-        raise RuntimeError("모델이 요청을 거절했습니다")
-    return "".join(b.get("text", "") for b in out.get("content", [])
-                   if b.get("type") == "text").strip()
-
-
-def _openai(mid, body):
-    out = _post(
-        "https://api.openai.com/v1/responses",
-        {"authorization": "Bearer " + os.environ["OPENAI_API_KEY"]},
-        {"model": mid, "instructions": SYSTEM, "input": PROMPT + body,
-         "reasoning": {"effort": "medium"}, "max_output_tokens": 8000},
-    )
-    # Responses API 는 output 배열 안에 message -> content -> output_text 로 들어온다
-    parts = []
-    for item in out.get("output", []):
-        for c in item.get("content", []) or []:
-            if c.get("type") in ("output_text", "text") and c.get("text"):
-                parts.append(c["text"])
-    return "".join(parts).strip()
+            r = subprocess.run(argv, input=stdin, env=env, cwd=cwd,
+                               capture_output=True, text=True,
+                               encoding="utf-8", errors="replace",
+                               timeout=timeout or CLI_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("CLI 응답이 너무 오래 걸려 중단했습니다.")
+    if r.returncode != 0:
+        raise RuntimeError("CLI 실행 실패: %s" % (r.stderr or r.stdout or "")[-300:])
+    return (r.stdout or "").strip()
 
 
 def summarize(rows, channel, date):
-    """LLM 결산. 키가 없거나 호출이 실패하면 None 을 돌려준다 (호출자가 통계로 강등)."""
-    mid = model()
-    if not key_present(mid):
+    """LLM 결산. CLI 가 없거나 실패하면 None (호출자가 통계로 강등)."""
+    if not cli_ready():
         return None
 
     body = _fmt(rows)
@@ -198,8 +192,7 @@ def summarize(rows, channel, date):
         body = body[:half] + "\n\n…(중략)…\n\n" + body[-half:]
 
     try:
-        fn = _openai if spec(mid)["provider"] == "openai" else _anthropic
-        text = fn(mid, body)
+        text = _cli(SYSTEM, PROMPT + body)
     except Exception:  # noqa: BLE001 — 결산 하나 때문에 봇이 죽으면 안 된다
         return None
 
@@ -266,45 +259,21 @@ def context_block(rows, channel, span):
     return "자료 — #%s · %s (KST) · %d건\n\n%s" % (channel, span, len(rows), body)
 
 
-def _ask_anthropic(mid, system, history):
-    out = _post(
-        "https://api.anthropic.com/v1/messages",
-        {"x-api-key": os.environ["ANTHROPIC_API_KEY"], "anthropic-version": "2023-06-01"},
-        {"model": mid, "max_tokens": 8000, "system": system,
-         "thinking": {"type": "adaptive"},
-         "output_config": {"effort": "medium"},
-         "messages": history},
-    )
-    if out.get("stop_reason") == "refusal":
-        raise RuntimeError("모델이 요청을 거절했습니다")
-    return "".join(b.get("text", "") for b in out.get("content", [])
-                   if b.get("type") == "text").strip()
-
-
-def _ask_openai(mid, system, history):
-    out = _post(
-        "https://api.openai.com/v1/responses",
-        {"authorization": "Bearer " + os.environ["OPENAI_API_KEY"]},
-        {"model": mid, "instructions": system, "input": history,
-         "reasoning": {"effort": "medium"}, "max_output_tokens": 8000},
-    )
-    parts = []
-    for item in out.get("output", []):
-        for c in item.get("content", []) or []:
-            if c.get("type") in ("output_text", "text") and c.get("text"):
-                parts.append(c["text"])
-    return "".join(parts).strip()
-
-
 def ask(history, context):
-    """대화 기록 + 자료로 한 번 묻는다. (텍스트, 오류) 를 돌려준다."""
-    mid = model()
-    if not key_present(mid):
-        need = PROVIDER_KEY.get(spec(mid)["provider"], "ANTHROPIC_API_KEY")
-        return None, "요약 키가 없습니다. `%s` 를 넣으면 묻기가 동작합니다." % need
-    fn = _ask_openai if spec(mid)["provider"] == "openai" else _ask_anthropic
+    """대화 기록 + 자료로 한 번 묻는다. (텍스트, 오류) 를 돌려준다.
+
+    CLI 는 턴을 기억하지 않으므로 지난 대화를 프롬프트에 같이 적어 보낸다.
+    """
+    if not cli_ready():
+        return None, "연동된 CLI 계정이 없습니다. 콘솔의 '연결' 탭에서 붙이세요."
+    turns = ["%s: %s" % ("나" if m["role"] == "user" else "너", m["content"])
+             for m in history[:-1]]
+    prompt = context
+    if turns:
+        prompt += "\n\n지난 대화:\n" + "\n".join(turns)
+    prompt += "\n\n질문: " + history[-1]["content"]
     try:
-        text = fn(mid, ASK_SYSTEM + "\n\n" + context, history)
+        text = _cli(ASK_SYSTEM, prompt)
     except Exception as e:  # noqa: BLE001
         return None, str(e)
     return (text or None), (None if text else "빈 응답을 받았습니다.")
