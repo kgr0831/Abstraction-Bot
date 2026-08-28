@@ -1,0 +1,62 @@
+"""digest.py 자체 점검. 실제 API 는 부르지 않는다 (키 없으면 통계로 강등되는지 확인)."""
+
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
+
+os.environ.setdefault("COLLECTOR_DB", "data/_test_digest.db")
+for _f in ("data/_test_digest.db", "data/_test_digest.db-wal", "data/_test_digest.db-shm"):
+    if os.path.exists(_f):
+        os.remove(_f)
+
+import digest  # noqa: E402
+
+
+def rows(n=6):
+    who = ["김가람", "유재림", "김민준", "김가람", "유재림", "김가람"]
+    return [{
+        "id": str(100 + i), "author": who[i % len(who)],
+        "content": "메시지 %d" % i,
+        "at": "2026-08-27T1%d:0%d:00+09:00" % (i % 10, i % 10),
+        "channel": "아이디어", "reply_to": None, "thread": None, "files": 0,
+        "guild_id": "g1", "channel_id": "c1",
+    } for i in range(n)]
+
+
+def main():
+    # 1. 통계 결산은 키 없이도 나온다
+    key = os.environ.pop("ANTHROPIC_API_KEY", None)
+    try:
+        assert digest.summarize(rows(), "아이디어", "2026-08-27") is None, "키 없이 LLM 을 부름"
+        text = digest.stats(rows(), "아이디어", "2026-08-27")
+        assert "일일 결산" in text and "6건" in text, text
+        assert "김가람 — 3건" in text, text
+        assert "discord.com/channels/g1/c1/100" in text, text
+        assert digest.stats([], "아이디어", "2026-08-27") is None
+    finally:
+        if key:
+            os.environ["ANTHROPIC_API_KEY"] = key
+
+    # 2. 디스코드 2000자 제한에 맞춰 줄 단위로 자른다
+    long = "\n".join("줄 %d 짧은 내용" % i for i in range(400))
+    parts = digest.chunks(long)
+    assert len(parts) > 1
+    assert all(len(p) <= 1900 for p in parts), [len(p) for p in parts]
+    assert "\n".join(parts) == long, "자르면서 내용이 바뀜"
+    assert digest.chunks("한 줄") == ["한 줄"]
+
+    # 3. 어제 날짜는 KST 기준
+    import db
+    from datetime import datetime, timedelta
+    assert digest.yesterday_kst() == (datetime.now(db.KST).date() - timedelta(days=1)).isoformat()
+
+    for f in ("data/_test_digest.db", "data/_test_digest.db-wal", "data/_test_digest.db-shm"):
+        if os.path.exists(f):
+            os.remove(f)
+    print("test_digest: 통과")
+
+
+if __name__ == "__main__":
+    main()

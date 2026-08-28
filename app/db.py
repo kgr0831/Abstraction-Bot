@@ -56,6 +56,12 @@ CREATE TABLE IF NOT EXISTS links (
 );
 CREATE INDEX IF NOT EXISTS idx_links_identity ON links(identity);
 
+-- 결산 채널·시각 같은 서버 설정
+CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT
+);
+
 CREATE TABLE IF NOT EXISTS pair_codes (
   code       TEXT PRIMARY KEY,
   user_id    TEXT NOT NULL,
@@ -395,3 +401,17 @@ def link_by_identity(conn, identity):
         "SELECT * FROM links WHERE identity=? ORDER BY linked_at DESC LIMIT 1",
         (identity,),
     ).fetchone()
+
+
+# --- 설정 -------------------------------------------------------------------
+
+def get_setting(conn, key, default=None):
+    r = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    return r["value"] if r else default
+
+
+def set_setting(conn, key, value):
+    if value is None:
+        conn.execute("DELETE FROM settings WHERE key=?", (key,))
+    else:
+        conn.execute("INSERT OR REPLACE INTO settings VALUES (?,?)", (key, str(value)))

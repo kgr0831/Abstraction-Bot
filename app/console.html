@@ -538,6 +538,10 @@ async function viewCollect(){
   bf.appendChild(run); v.appendChild(bf);
   const blog = el('div','log'); v.appendChild(blog);
 
+  v.appendChild(el('h2', null, '일일 결산'));
+  const dg = el('div', null); v.appendChild(dg);
+  const dlog = el('div','log'); v.appendChild(dlog);
+
   v.appendChild(el('h2', null, '내 수집 설정'));
   const oo = el('div','card'); v.appendChild(oo);
 
@@ -592,6 +596,54 @@ async function viewCollect(){
         say((j.count||0)+'건 가져왔어!','happy'); }
     }, 700);
   };
+
+  // 결산
+  const d = await api('/api/digest');
+  dg.textContent='';
+  const set = el('div','card');
+  set.innerHTML = '<div><div class="who">결산 채널 '+
+    (d.channel_name ? '<span class="badge g">#'+esc(d.channel_name)+'</span>'
+                    : '<span class="badge y">미설정</span>')+'</div>'+
+    '<div class="meta">'+(d.channel_name
+      ? '매일 '+d.hour+'시(KST)에 전날 대화를 정리해 올립니다'+
+        (d.last ? ' · 마지막 '+esc(d.last) : '')
+      : '버튼을 누르면 #일일결산 채널을 만들고(권한 없으면 안내) 자동 게시를 켭니다')+
+    '</div></div>';
+  const hr = el('input'); hr.type='number'; hr.min=0; hr.max=23; hr.style.width='68px';
+  hr.value = d.hour ?? 9;
+  const sb = el('button', d.channel_name?'ghost':''); sb.textContent = d.channel_name?'시각 변경':'결산 켜기';
+  sb.onclick = async ()=>{
+    const stop = spinning(sb); BUSY++; say('결산 채널 준비 중...','working');
+    const r = await post('/api/digest', {hour: Number(hr.value)||9});
+    BUSY--; stop();
+    if(!r.ok){ dlog.style.display='block'; dlog.textContent=r.error||'실패'; say('안 됐어...','idle'); }
+    else say('#'+r.name+' 에 매일 올릴게!','happy');
+    viewCollect();
+  };
+  const row = el('div','row'); row.append(el('span','meta','매일'), hr, el('span','meta','시'), sb);
+  set.appendChild(row); dg.appendChild(set);
+
+  if(d.channel_name){
+    const now = el('div','card');
+    now.innerHTML = '<div><div class="who">지금 결산 올리기</div>'+
+      '<div class="meta">비우면 어제 날짜로 만듭니다</div></div>';
+    const dt = el('input'); dt.type='date';
+    const rb = el('button','ghost'); rb.textContent='실행';
+    rb.onclick = async ()=>{
+      const stop = spinning(rb); BUSY++; say('결산 쓰는 중... 좀 걸려!','working');
+      dlog.style.display='block'; dlog.innerHTML='만드는 중...<div class="prog"><i></i></div>';
+      const r = await post('/api/digest/run', {date: dt.value || ''});
+      if(!r.ok){ dlog.textContent=r.error||'실패'; stop(); BUSY--; say('실패했어...','idle'); return; }
+      POLL = setInterval(async ()=>{
+        const j = await api('/api/job/'+r.id);
+        dlog.textContent = (j.lines||[]).join("\n");
+        if(j.done){ clearInterval(POLL); POLL=null; stop(); BUSY--;
+          say(j.ok?'결산 올렸어!':'실패했어...', j.ok?'happy':'idle'); }
+      }, 900);
+    };
+    const r2 = el('div','row'); r2.append(dt, rb);
+    now.appendChild(r2); dg.appendChild(now);
+  }
 
   const st = await api('/api/optout');
   oo.textContent='';

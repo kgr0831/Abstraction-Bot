@@ -16,6 +16,33 @@
 
 봇에는 LLM 호출도 노션 클라이언트도 없다. 요약 프롬프트를 고쳐도 봇을 재배포하지 않는다.
 
+## Claude 에 붙이기 — 주소 하나
+
+콘솔에서 커넥터 주소를 복사해 Claude Desktop 설정 > 커넥터에 붙여넣으면 끝이다.
+
+```
+https://<서버>/c/<내토큰>
+```
+
+**주소 자체가 신분증이라 로그인 창이 뜨지 않는다.** 붙여넣기 한 번으로 인증까지
+끝난다. 대신 주소가 곧 비밀번호다 — 남에게 보이면 그 사람이 내 대화를 조회할 수
+있으니, 새면 콘솔에서 재발급해 옛 주소를 죽인다.
+
+> 로컬 CLI 는 `.mcp.json` 으로 이미 붙어 있다. 원격 주소는 설치 없이 쓰고 싶은
+> 팀원용이다.
+
+## 일일 결산
+
+매일 정한 시각(KST)에 전날 대화를 정리해 결산 채널에 올린다. 콘솔 **수집** 탭에서
+켠다 — 버튼을 누르면 `#일일결산` 채널을 만들고(봇에 '채널 관리' 권한이 없으면
+안내한다) 자동 게시를 켠다. `지금 결산 올리기` 로 특정 날짜를 수동 실행할 수도 있다.
+
+**여기만 서버 키를 쓴다.** 자동 결산은 특정 사용자의 Claude 를 쓸 수 없다 — 그 사람이
+앱을 꺼놨을 수 있기 때문이다. 개인 조회·정리는 여전히 각자 CLI 다.
+
+`ANTHROPIC_API_KEY` 가 없으면 **통계 결산**(건수·참여자·활발한 시간)으로 자동
+강등된다. 키 없이도 돌아간다.
+
 ## 두 가지 모드
 
 봇과 DB 는 **한 곳에서만** 돈다. 콘솔은 각자 PC 에서 뜬다.
@@ -154,7 +181,8 @@ app/
   console.html      콘솔 UI (탭 4개). 요청마다 읽으므로 고치고 새로고침만 하면 된다
                     디자인 토큰은 orca 와 동일 (shadcn/ui neutral)
   remote.py         로컬/원격 판단과 조회. launcher 와 mcp_server 가 같이 쓴다
-tests/              test_db · test_mcp · test_launcher
+  digest.py         일일 결산 본문 생성. 키 없으면 통계로 강등
+tests/              test_db · test_mcp · test_launcher · test_digest
 .mcp.json           Claude Code MCP 등록 (uv run 이라 경로 무관)
 data/               SQLite · 등록된 계정 (gitignore됨)
 docs/               기획 문서 (로컬 전용, gitignore됨)
@@ -168,12 +196,14 @@ docs/               기획 문서 (로컬 전용, gitignore됨)
 | `LAUNCHER_PORT` | `8787` | 콘솔 포트 |
 | `LAUNCHER_URL` | `http://127.0.0.1:8787` | 봇이 안내하는 콘솔 주소 |
 | `SERVER_URL` | 자기 자신 | 비우면 서버 모드, 넣으면 클라이언트 모드 |
+| `ANTHROPIC_API_KEY` | 없음 | 일일 결산 요약용. 없으면 통계 결산 |
+| `DIGEST_MODEL` | `claude-opus-5` | 결산 모델. `claude-sonnet-5` 로 낮추면 비용 1/2.5 |
 | `COLLECTOR_DB` · `COLLECTOR_ACCOUNTS` | `data/` 아래 | 테스트에서 갈아끼운다 |
 
 ## 테스트
 
 ```bash
-uv run python tests/test_db.py && uv run python tests/test_mcp.py && uv run python tests/test_launcher.py
+uv run python tests/test_db.py && uv run python tests/test_mcp.py && uv run python tests/test_launcher.py && uv run python tests/test_digest.py
 ```
 
 ## 설계 메모
@@ -195,4 +225,8 @@ uv run python tests/test_db.py && uv run python tests/test_mcp.py && uv run pyth
   사이드바 `239px`). 라이트/다크 둘 다 지원한다. 로고와 파비콘은 봇 아바타를 쓴다.
 - **로컬이냐 원격이냐는 `remote.py` 한 곳에서만 판단한다.** 조회 응답 모양도 거기서
   통일한다 — 로컬 SQLite 행과 서버 JSON 이 다르면 원격 모드가 조용히 깨진다.
+- **`Mount` 는 경로 prefix 를 안 벗긴다.** `root_path` 만 채우므로 `/c/<토큰>` 에서
+  토큰을 직접 잘라내야 한다. 안 그러면 토큰 자리에 `c` 가 잡혀 전부 401 이 된다.
+- **결산 게시 전에 `digest_last` 를 먼저 찍는다.** 실패해도 같은 날 여러 번 올리지 않는다.
+- **`digest.build` 는 실행자로 보낸다.** LLM 호출이 블로킹이라 봇 루프를 막는다.
 - **페어링 요청은 stdlib `urllib`.** 호출 한 곳 때문에 HTTP 클라이언트를 의존성에 넣지 않는다.

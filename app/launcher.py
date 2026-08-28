@@ -33,9 +33,10 @@ from dotenv import load_dotenv
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import FileResponse, HTMLResponse, JSONResponse
-from starlette.routing import Route
+from starlette.routing import Mount, Route
 
 import db
+import mcp_server
 import remote
 
 load_dotenv()
@@ -681,6 +682,62 @@ async def api_backfill(request):
 
 
 @shared
+async def api_digest(request):
+    """일일 결산 설정 조회/변경. 서버 관리 권한자만."""
+    b = bot_bridge()
+    if not b:
+        return JSONResponse({"ok": False, "error": "봇이 실행 중이 아닙니다."}, 503)
+    if request.method == "GET":
+        try:
+            return JSONResponse({"ok": True, **await run_in_threadpool(b.digest_config)})
+        except Exception as e:  # noqa: BLE001
+            return JSONResponse({"ok": False, "error": str(e)}, 503)
+    ok, why = _manager_ok(request)
+    if not ok:
+        return JSONResponse({"ok": False, "error": why}, 403)
+    body = await request.json()
+    try:
+        hour = int(body.get("hour", 9))
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "시각은 0~23 사이 숫자여야 합니다."}, 400)
+    if not 0 <= hour <= 23:
+        return JSONResponse({"ok": False, "error": "시각은 0~23 사이여야 합니다."}, 400)
+    try:
+        out = await run_in_threadpool(
+            b.setup_digest, body.get("guild_id"), hour, body.get("channel_id"))
+        return JSONResponse({"ok": True, **out})
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(e)}, 400)
+
+
+@shared
+async def api_digest_run(request):
+    ok, why = _manager_ok(request)
+    if not ok:
+        return JSONResponse({"ok": False, "error": why}, 403)
+    b = bot_bridge()
+    if not b:
+        return JSONResponse({"ok": False, "error": "봇이 실행 중이 아닙니다."}, 503)
+    body = await request.json()
+    date = body.get("date") or None
+    if date and not db.valid_date(date):
+        return JSONResponse({"ok": False, "error": "날짜 형식이 잘못됐습니다."}, 400)
+    job_id = uuid.uuid4().hex[:12]
+    jobs[job_id] = {"lines": ["결산을 만드는 중..."], "done": False, "ok": False}
+
+    def work():
+        try:
+            n = b.run_digest_now(date)
+            jobs[job_id].update(ok=True, lines=["채널 %d개 결산을 올렸습니다." % n])
+        except Exception as e:  # noqa: BLE001
+            jobs[job_id]["lines"] = [str(e)]
+        jobs[job_id]["done"] = True
+
+    threading.Thread(target=work, daemon=True).start()
+    return JSONResponse({"ok": True, "id": job_id})
+
+
+@shared
 async def api_optout(request):
     """내 수집 거부 상태. 디스코드 연동이 돼 있어야 누구인지 안다."""
     row = auth_link(request)
@@ -719,7 +776,58 @@ async def api_leaderboard(request):
         conn.close()
 
 
-app = Starlette(routes=[
+# --- 원격 MCP: 주소 하나로 Claude 에 붙는다 --------------------------------
+# https://<서버>/c/<토큰>  을 커넥터에 붙여넣으면 끝. 토큰이 곧 신분증이라
+# 별도 로그인 창이 뜨지 않는다. 유출되면 콘솔에서 재발급하면 옛 주소는 죽는다.
+
+MCP_APP = mcp_server.mcp.streamable_http_app()
+
+
+async def mcp_entry(scope, receive, send):
+    if scope["type"] != "http":
+        return await MCP_APP(scope, receive, send)
+    # Mount 는 prefix 를 안 벗기고 root_path 만 채운다 — 직접 잘라낸다
+    root = scope.get("root_path") or ""
+    rest = scope["path"][len(root):] if root and scope["path"].startswith(root) else scope["path"]
+    tok = rest.strip("/").split("/")[0]
+    conn = db.connect()
+    try:
+        row = db.link_by_token(conn, tok)
+    finally:
+        conn.close()
+    if row is None:
+        return await JSONResponse(
+            {"error": "알 수 없는 주소입니다. 콘솔에서 커넥터 주소를 다시 받으세요."},
+            status_code=401)(scope, receive, send)
+    mcp_server.http_user.set(dict(row))
+    inner = dict(scope)
+    inner["path"] = "/mcp"
+    inner["raw_path"] = b"/mcp"
+    inner["root_path"] = ""
+    await MCP_APP(inner, receive, send)
+
+
+def connector_url(tok):
+    return "%s/c/%s" % (SERVER_URL.rstrip("/"), tok)
+
+
+async def api_connector(request):
+    """이 콘솔 주인의 커넥터 주소와, 실제로 붙었는지."""
+    acct = primary_account()
+    conn = db.connect()
+    try:
+        row = db.link_by_identity(conn, acct["identity"]) if acct else None
+    finally:
+        conn.close()
+    if not row or not row["token"]:
+        return JSONResponse({"ok": False, "error": "디스코드 연동을 먼저 하세요."}, 400)
+    return JSONResponse({"ok": True, "url": connector_url(row["token"]),
+                         "connected_at": row["mcp_seen_at"] if "mcp_seen_at" in row.keys() else None})
+
+
+app = Starlette(lifespan=MCP_APP.router.lifespan_context, routes=[
+    Mount("/c", app=mcp_entry),
+    Route("/api/connector", api_connector),
     Route("/", page),
     Route("/leaderboard", page),
     Route("/api/me", api_me),
@@ -742,6 +850,8 @@ app = Starlette(routes=[
     Route("/api/collect", api_collect, methods=["POST"]),
     Route("/api/backfill", api_backfill, methods=["POST"]),
     Route("/api/optout", api_optout, methods=["GET", "POST"]),
+    Route("/api/digest", api_digest, methods=["GET", "POST"]),
+    Route("/api/digest/run", api_digest_run, methods=["POST"]),
     Route("/api/leaderboard", api_leaderboard),
 ])
 

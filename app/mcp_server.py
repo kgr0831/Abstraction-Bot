@@ -4,6 +4,7 @@
 데이터가 로컬 SQLite 인지 원격 서버인지는 remote 모듈이 판단한다.
 """
 
+import contextvars
 from datetime import datetime
 
 from mcp.server.mcpserver import MCPServer
@@ -15,9 +16,15 @@ mcp = MCPServer("discord-collector")
 
 LINK = "https://discord.com/channels/{guild}/{channel}/{msg}"
 
+# 원격(HTTP) 로 들어온 요청의 주인. 주소에 실린 토큰으로 launcher 가 채운다.
+http_user = contextvars.ContextVar("http_user", default=None)
+
 
 def _gate():
-    """본인 CLI 가 연동돼 있어야 조회를 허용한다. 통과면 None, 아니면 안내 문구."""
+    """본인 계정이 연동돼 있어야 조회를 허용한다. 통과면 None, 아니면 안내 문구."""
+    if http_user.get():
+        # 원격 커넥터 — 주소에 실린 토큰이 이미 신분을 증명했다
+        return None
     mine = {a.get("identity") for a in db.local_accounts() if a.get("identity")}
     if not mine:
         return (

@@ -15,9 +15,11 @@ from datetime import datetime, timedelta, timezone
 
 import discord
 from discord import app_commands
+from discord.ext import tasks
 from dotenv import load_dotenv
 
 import db
+import digest
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -61,6 +63,8 @@ def collectible(channel, author_id):
 @client.event
 async def on_ready():
     log.info("%s 접속. 서버 %d개", client.user, len(client.guilds))
+    if not digest_tick.is_running():
+        digest_tick.start()
 
 
 @client.event
@@ -181,6 +185,113 @@ def run_backfill(channel_id, after=None, before=None, days=None, job=None):
     if after is None:
         after = datetime.now(timezone.utc) - timedelta(days=days or 90)
     return _call(_backfill(ch, after, before, job), timeout=3600)
+
+
+# --- 일일 결산 --------------------------------------------------------------
+
+DIGEST_CHANNEL = "일일결산"
+
+
+async def ensure_digest_channel(guild_id=None, name=DIGEST_CHANNEL):
+    """결산 채널을 찾거나 만든다. 권한이 없으면 알려준다."""
+    g = client.get_guild(int(guild_id)) if guild_id else (client.guilds[0] if client.guilds else None)
+    if g is None:
+        raise NotReady("서버를 찾을 수 없습니다.")
+    found = discord.utils.get(g.text_channels, name=name)
+    if found:
+        return found
+    if not g.me.guild_permissions.manage_channels:
+        raise NotReady(
+            "봇에게 '채널 관리' 권한이 없어 채널을 못 만듭니다. "
+            "디스코드에서 #%s 채널을 직접 만들거나, 기존 채널을 고르세요." % name)
+    return await g.create_text_channel(name, topic="매일 자동으로 올라오는 대화 결산")
+
+
+def setup_digest(guild_id=None, hour=9, channel_id=None):
+    """콘솔이 부른다. 채널을 정하고 시각을 저장한다."""
+    ch = client.get_channel(int(channel_id)) if channel_id else _call(ensure_digest_channel(guild_id))
+    if ch is None:
+        raise NotReady("채널을 찾을 수 없습니다.")
+    c = bridge_conn()
+    try:
+        db.set_setting(c, "digest_channel_id", ch.id)
+        db.set_setting(c, "digest_hour", int(hour))
+    finally:
+        c.close()
+    return {"id": str(ch.id), "name": ch.name, "hour": int(hour)}
+
+
+def digest_config():
+    c = bridge_conn()
+    try:
+        cid = db.get_setting(c, "digest_channel_id")
+        return {"channel_id": cid,
+                "channel_name": getattr(client.get_channel(int(cid)), "name", None) if cid else None,
+                "hour": int(db.get_setting(c, "digest_hour", "9")),
+                "last": db.get_setting(c, "digest_last")}
+    finally:
+        c.close()
+
+
+async def post_digest(channel_id, date):
+    """수집 채널마다 그날 결산을 만들어 결산 채널에 올린다."""
+    ch = client.get_channel(int(channel_id))
+    if ch is None:
+        raise NotReady("결산 채널을 찾을 수 없습니다.")
+    c = bridge_conn()
+    try:
+        srcs = [dict(r) for r in db.list_channels(c)]
+    finally:
+        c.close()
+    loop = asyncio.get_running_loop()
+    posted = 0
+    for src in srcs:
+        # digest.build 는 LLM 을 부르는 블로킹 호출이라 봇 루프를 막으면 안 된다
+        text = await loop.run_in_executor(
+            None, digest.build, src["channel_id"], src["channel_name"], date)
+        if not text:
+            continue
+        for part in digest.chunks(text):
+            await ch.send(part)
+        posted += 1
+    if not posted:
+        await ch.send("%s 에는 수집된 대화가 없었습니다." % date)
+    log.info("결산 게시 %s: 채널 %d개", date, posted)
+    return posted
+
+
+def run_digest_now(date=None):
+    """콘솔의 '지금 결산' 버튼."""
+    cfg = digest_config()
+    if not cfg["channel_id"]:
+        raise NotReady("결산 채널을 먼저 정하세요.")
+    return _call(post_digest(cfg["channel_id"], date or digest.yesterday_kst()), timeout=900)
+
+
+@tasks.loop(minutes=1)
+async def digest_tick():
+    """설정된 시각(KST)이 지나면 전날 결산을 한 번 올린다."""
+    c = bridge_conn()
+    try:
+        cid = db.get_setting(c, "digest_channel_id")
+        hour = int(db.get_setting(c, "digest_hour", "9"))
+        last = db.get_setting(c, "digest_last", "")
+        target = digest.yesterday_kst()
+        if not cid or datetime.now(db.KST).hour < hour or last == target:
+            return
+        # 게시 전에 먼저 찍는다 — 실패해도 같은 날 여러 번 올리지 않는다
+        db.set_setting(c, "digest_last", target)
+    finally:
+        c.close()
+    try:
+        await post_digest(cid, target)
+    except Exception as e:  # noqa: BLE001
+        log.warning("결산 실패 %s: %s", target, e)
+
+
+@digest_tick.before_loop
+async def _wait_ready():
+    await client.wait_until_ready()
 
 
 # --- 슬래시 커맨드 (디스코드 안에서 반드시 닿아야 하는 것만) ------------------
