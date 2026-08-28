@@ -176,6 +176,28 @@ label.f{font-size:12.5px;color:var(--muted-foreground);display:flex;gap:6px;alig
 a.big{display:inline-block;margin-top:9px;padding:7px 14px;background:var(--hebi);
   color:#04241a;border-radius:var(--radius-md);text-decoration:none;font-size:13.5px;font-weight:650}
 .empty{color:var(--muted-foreground);padding:44px 0;text-align:center;font-size:13.5px}
+#thread{border:1px solid var(--border);border-radius:var(--radius);background:var(--card);
+        padding:14px 16px;max-height:56vh;overflow:auto;margin-bottom:10px}
+.turn{display:flex;gap:10px;margin-bottom:14px;align-items:flex-start}
+.turn.me{flex-direction:row-reverse}
+.turn .av{background:var(--secondary)}
+.turn.me .av{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary)}
+.turn .body{max-width:78%;white-space:pre-wrap;word-break:break-word;font-size:13.5px;
+            line-height:1.62;background:var(--muted);border-radius:var(--radius);padding:9px 13px}
+.turn.me .body{background:var(--primary);color:var(--primary-foreground)}
+.asked{display:flex;gap:8px;align-items:flex-end}
+.asked textarea{flex:1;font:inherit;font-size:13.5px;padding:9px 12px;border-radius:var(--radius-md);
+  border:1px solid var(--input);background:var(--background);color:inherit;resize:none;
+  min-height:42px;max-height:160px;line-height:1.5}
+.asked textarea:focus{outline:2px solid color-mix(in srgb,var(--hebi) 45%,transparent);
+  outline-offset:1px;border-color:var(--hebi)}
+#sum{border:1px solid var(--border);border-radius:var(--radius);background:var(--card);
+     padding:16px 18px;margin-top:10px;display:none;white-space:pre-wrap;font-size:13.5px;
+     line-height:1.65;max-height:52vh;overflow:auto}
+#sum h4{font-size:12px;color:var(--muted-foreground);text-transform:uppercase;
+        letter-spacing:.06em;margin:0 0 10px;display:flex;gap:8px;align-items:center;
+        justify-content:space-between}
+#sum b{font-weight:700}
 .banner{border:1px solid color-mix(in srgb,var(--warn) 32%,transparent);
   background:color-mix(in srgb,var(--warn) 8%,transparent);color:var(--warn);
   border-radius:var(--radius);padding:9px 14px;margin-bottom:16px;font-size:13px;display:none}
@@ -272,6 +294,8 @@ const ICON = {
   connect: ic('<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"/>'+
               '<path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"/>'),
   board: ic('<path d="M12 20V10M18 20V4M6 20v-4"/>'),
+  ask: ic('<path d="M12 17h.01"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/>'+
+          '<circle cx="12" cy="12" r="9.5"/>'),
 };
 // 서비스 아이콘. 서버가 파비콘을 받아 캐시해서 내려준다 (브라우저가 외부로 안 나감).
 // 못 받으면 글자 마크로 떨어진다.
@@ -292,6 +316,7 @@ function lead(key, label, html){
 
 const TABS = [
   ['chat','대화', ICON.chat, '대화 보기', '수집된 채널의 대화를 날짜 범위로 보고 검색합니다.'],
+  ['ask','묻기', ICON.ask, '묻기', '고른 기간의 대화를 놓고 자유롭게 묻고 시킬 수 있습니다.'],
   ['collect','수집', ICON.collect, '수집 관리', '어떤 채널을 모을지 정하고 과거 대화를 가져옵니다.'],
   ['connect','연결', ICON.connect, '연결', '에이전트 계정과 MCP를 연결합니다. 본인 CLI로만 동작합니다.'],
   ['board','리더보드', ICON.board, '리더보드', '수집된 채널 기준 발언 집계입니다.'],
@@ -428,7 +453,8 @@ function route(){
   const cur = nav();
   pref('tab', cur);
   $('#view').textContent=''; $('#headx').textContent='';
-  ({chat:viewChat, collect:viewCollect, connect:viewConnect, board:viewBoard}[cur] || viewChat)();
+  ({chat:viewChat, ask:viewAsk, collect:viewCollect,
+    connect:viewConnect, board:viewBoard}[cur] || viewChat)();
 }
 window.addEventListener('hashchange', route);
 
@@ -457,7 +483,9 @@ async function viewChat(){
     '<input type="text" id="q" placeholder="본문 검색" style="flex:1;min-width:150px">'+
     '</div>';
   const go = el('button', null); go.textContent='보기';
-  bar.appendChild(go); v.appendChild(bar);
+  const sm = el('button','ghost'); sm.textContent='정리';
+  sm.title = '지금 보고 있는 기간을 요약합니다';
+  bar.append(go, sm); v.appendChild(bar);
 
   const quick = el('div','chips');
   for(const [label, s, e] of [['오늘',today(),''],['어제',ago(1),ago(1)],
@@ -467,8 +495,44 @@ async function viewChat(){
     quick.appendChild(c);
   }
   v.appendChild(quick);
+  const sumBox = el('div', null); sumBox.id='sum'; v.appendChild(sumBox);
   const stream = el('div', null); stream.id='stream'; v.appendChild(stream);
   stream.appendChild(busyBox('대화를 불러오는 중...'));
+
+  sm.onclick = async ()=>{
+    const ch = sel.value;
+    const d1 = $('#d1').value || today(), d2 = $('#d2').value || today();
+    const stop = spinning(sm); BUSY++; say('읽고 정리하는 중... 좀 걸려!','working');
+    sumBox.style.display='block';
+    sumBox.innerHTML = '<h4><span>정리</span></h4><div class="busy">'+
+      '<span class="spin"></span>대화를 읽는 중...</div>';
+    const r = await post('/api/summarize', {channel:ch, date:d1, until:d2});
+    if(!r.ok){ sumBox.innerHTML = '<h4><span>정리</span></h4>'+esc(r.error||'실패');
+      stop(); BUSY--; say('정리할 게 없네...','idle'); return; }
+    sumBox.innerHTML = '<h4><span>정리 · '+esc(r.span)+' · '+r.count+'건</span></h4>'+
+      '<div class="busy"><span class="spin"></span>요약하는 중...</div>';
+    clearInterval(POLL);
+    POLL = setInterval(async ()=>{
+      const j = await api('/api/job/'+r.id);
+      if(!j.done) return;
+      clearInterval(POLL); POLL=null; stop(); BUSY--;
+      if(!j.ok || !j.text){
+        sumBox.innerHTML = '<h4><span>정리</span></h4>'+esc((j.lines||['실패']).join(' '));
+        say('정리에 실패했어...','idle'); return;
+      }
+      const head = el('h4');
+      head.appendChild(el('span', null, '정리 · '+esc(r.span)+' · '+r.count+'건'+
+        (j.llm ? ' · '+esc(j.model) : ' · 통계만 (요약 키 없음)')));
+      const cp = el('button','ghost'); cp.textContent='복사';
+      cp.style.padding='4px 10px'; cp.style.fontSize='12px';
+      cp.onclick = ()=>{ navigator.clipboard.writeText(j.text);
+                         cp.textContent='복사됨'; setTimeout(()=>cp.textContent='복사',1500); };
+      head.appendChild(cp);
+      sumBox.textContent=''; sumBox.appendChild(head);
+      sumBox.appendChild(el('div', null, esc(j.text)));
+      say('정리 끝!','happy');
+    }, 900);
+  };
 
   const chans = await api('/api/channels');
   const sel = $('#ch');
@@ -536,6 +600,109 @@ function render(box, msgs, q){
     prev = m.author;
   }
   box.scrollTop = box.scrollHeight;
+}
+
+/* ---------------- 묻기 ---------------- */
+let ASKLOG = [];
+
+async function viewAsk(){
+  const v = $('#view');
+  const bar = el('div','card');
+  bar.innerHTML = '<div class="row" style="flex:1">'+
+    '<select id="ach"></select>'+
+    '<label class="f">부터 <input type="date" id="a1"></label>'+
+    '<label class="f">까지 <input type="date" id="a2"></label>'+
+    '<span class="meta" id="anote"></span></div>';
+  const clr = el('button','ghost'); clr.textContent='대화 지우기';
+  clr.onclick = ()=>{ ASKLOG=[]; draw(); };
+  bar.appendChild(clr); v.appendChild(bar);
+
+  const thread = el('div', null); thread.id='thread'; v.appendChild(thread);
+
+  const box = el('div','asked');
+  const ta = el('textarea');
+  ta.placeholder = '무엇이든 물어보세요 — "오늘 뭐 얘기했어?", "사업 아이디어 뽑아줘", "결론 안 난 거 정리해줘"';
+  const send = el('button', null); send.textContent='보내기';
+  box.append(ta, send); v.appendChild(box);
+
+  const chans = await api('/api/channels');
+  const sel = $('#ach');
+  if(!chans.length){
+    thread.innerHTML = '<div class="empty">수집 중인 채널이 없습니다.</div>';
+    ta.disabled = send.disabled = true;
+    return;
+  }
+  for(const c of chans){
+    const o = el('option', null, '#'+esc(c.channel_name)+' · '+c.message_count);
+    o.value = c.channel_id; sel.appendChild(o);
+  }
+  sel.value = pref('ch') || chans[0].channel_id;
+  if(!sel.value) sel.value = chans[0].channel_id;
+  $('#a1').value = pref('d1') || ago(6); $('#a2').value = pref('d2') || '';
+  const remember = ()=>{ pref('ch', sel.value); pref('d1', $('#a1').value); pref('d2', $('#a2').value); };
+  sel.onchange = $('#a1').onchange = $('#a2').onchange = remember;
+
+  draw();
+  ta.focus();
+  ta.addEventListener('keydown', e=>{
+    if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); go(); }
+  });
+  send.onclick = go;
+
+  function draw(){
+    thread.textContent='';
+    if(!ASKLOG.length){
+      thread.innerHTML = '<div class="empty">고른 채널과 기간의 대화를 자료로 물려주고 답합니다.<br>'+
+        '자료에 없으면 없다고 말합니다.</div>';
+      return;
+    }
+    for(const m of ASKLOG){
+      const t = el('div','turn'+(m.role==='user'?' me':''));
+      t.appendChild(el('div','av', m.role==='user'?'나':'H'));
+      t.appendChild(el('div','body', esc(m.content)));
+      thread.appendChild(t);
+    }
+    thread.scrollTop = thread.scrollHeight;
+  }
+
+  function pending(text){
+    const t = el('div','turn');
+    t.appendChild(el('div','av','H'));
+    const b = el('div','body');
+    b.innerHTML = '<span class="spin"></span> ' + esc(text);
+    t.appendChild(b); thread.appendChild(t); thread.scrollTop = thread.scrollHeight;
+    return t;
+  }
+
+  async function go(){
+    const q = ta.value.trim();
+    if(!q) return;
+    remember();
+    ASKLOG.push({role:'user', content:q});
+    ta.value=''; draw();
+    const stop = spinning(send); ta.disabled = true;
+    BUSY++; say('읽는 중...','working');
+    const wait = pending('대화를 읽는 중...');
+    const d1 = $('#a1').value || today(), d2 = $('#a2').value || today();
+    const r = await post('/api/chat', {channel: sel.value, date: d1, until: d2,
+                                       messages: ASKLOG});
+    if(!r.ok){
+      wait.remove(); ASKLOG.push({role:'assistant', content: r.error || '실패했습니다.'});
+      draw(); stop(); ta.disabled=false; BUSY--; say('그건 못 하겠어...','idle'); return;
+    }
+    $('#anote').textContent = r.span + ' · ' + r.count + '건 물림';
+    wait.querySelector('.body').innerHTML = '<span class="spin"></span> 생각하는 중...';
+    clearInterval(POLL);
+    POLL = setInterval(async ()=>{
+      const j = await api('/api/job/'+r.id);
+      if(!j.done) return;
+      clearInterval(POLL); POLL=null; wait.remove();
+      ASKLOG.push({role:'assistant',
+                   content: j.ok ? j.text : ((j.lines||['답을 못 받았습니다.']).join(' '))});
+      draw(); stop(); ta.disabled=false; ta.focus(); BUSY--;
+      say(j.ok?'답했어!':'잘 안 됐어...', j.ok?'happy':'idle');
+    }, 900);
+  }
 }
 
 /* ---------------- 수집 ---------------- */

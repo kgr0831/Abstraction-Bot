@@ -140,6 +140,11 @@ def _post(url, headers, body, tries=3, timeout=180):
             if retryable and i < tries - 1:
                 time.sleep(2 ** i * 3)
                 continue
+            if e.code in (401, 403):
+                # 프로바이더 응답에 키 일부가 섞여 오므로 화면에는 안 내보낸다
+                raise RuntimeError(
+                    "API 키가 거부됐습니다 (%d). %s 를 확인하세요."
+                    % (e.code, PROVIDER_KEY.get(spec()["provider"], "API 키")))
             raise RuntimeError("%s %s" % (e.code, detail))
         except (urllib.error.URLError, OSError):
             if i < tries - 1:
@@ -232,3 +237,74 @@ def yesterday_kst():
     from datetime import datetime, timedelta
 
     return (datetime.now(db.KST).date() - timedelta(days=1)).isoformat()
+
+
+# --- 묻기 (콘솔 채팅) -------------------------------------------------------
+
+ASK_SYSTEM = """너는 팀의 디스코드 대화를 읽고 답하는 조수다.
+
+- 아래 '자료'에 있는 것만 근거로 답한다. 없는 내용을 지어내지 않는다.
+- 자료에 답이 없으면 "그 기간 대화에는 없습니다" 라고 말하고,
+  어떤 채널·날짜를 보면 될지 제안한다.
+- 인용할 때는 줄 끝의 ⟨메시지ID⟩ 를 함께 적어 근거를 남긴다.
+- 사업 아이디어를 물으면 문제·대상 사용자·왜 지금 셋이 모두 대화에서 식별될 때만
+  아이디어로 세운다. 하나라도 없으면 "근거 부족" 으로 남긴다.
+- 한국어로, 짧고 사실 위주로 답한다."""
+
+ASK_MAX_CHARS = int(os.getenv("ASK_MAX_CHARS", "80000"))
+
+
+def context_block(rows, channel, span):
+    """모델에게 물려줄 자료. 대화록 그대로 준다."""
+    body = "\n".join(
+        "%s %s: %s  ⟨%s⟩" % (r["at"][11:16], r["author"], r["content"], r["id"])
+        for r in rows
+    )
+    if len(body) > ASK_MAX_CHARS:
+        half = ASK_MAX_CHARS // 2
+        body = body[:half] + "\n\n…(중략)…\n\n" + body[-half:]
+    return "자료 — #%s · %s (KST) · %d건\n\n%s" % (channel, span, len(rows), body)
+
+
+def _ask_anthropic(mid, system, history):
+    out = _post(
+        "https://api.anthropic.com/v1/messages",
+        {"x-api-key": os.environ["ANTHROPIC_API_KEY"], "anthropic-version": "2023-06-01"},
+        {"model": mid, "max_tokens": 8000, "system": system,
+         "thinking": {"type": "adaptive"},
+         "output_config": {"effort": "medium"},
+         "messages": history},
+    )
+    if out.get("stop_reason") == "refusal":
+        raise RuntimeError("모델이 요청을 거절했습니다")
+    return "".join(b.get("text", "") for b in out.get("content", [])
+                   if b.get("type") == "text").strip()
+
+
+def _ask_openai(mid, system, history):
+    out = _post(
+        "https://api.openai.com/v1/responses",
+        {"authorization": "Bearer " + os.environ["OPENAI_API_KEY"]},
+        {"model": mid, "instructions": system, "input": history,
+         "reasoning": {"effort": "medium"}, "max_output_tokens": 8000},
+    )
+    parts = []
+    for item in out.get("output", []):
+        for c in item.get("content", []) or []:
+            if c.get("type") in ("output_text", "text") and c.get("text"):
+                parts.append(c["text"])
+    return "".join(parts).strip()
+
+
+def ask(history, context):
+    """대화 기록 + 자료로 한 번 묻는다. (텍스트, 오류) 를 돌려준다."""
+    mid = model()
+    if not key_present(mid):
+        need = PROVIDER_KEY.get(spec(mid)["provider"], "ANTHROPIC_API_KEY")
+        return None, "요약 키가 없습니다. `%s` 를 넣으면 묻기가 동작합니다." % need
+    fn = _ask_openai if spec(mid)["provider"] == "openai" else _ask_anthropic
+    try:
+        text = fn(mid, ASK_SYSTEM + "\n\n" + context, history)
+    except Exception as e:  # noqa: BLE001
+        return None, str(e)
+    return (text or None), (None if text else "빈 응답을 받았습니다.")

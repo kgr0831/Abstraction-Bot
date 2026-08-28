@@ -441,7 +441,12 @@ def shared(fn):
             return await forward(request)
         if not allowed(request):
             return JSONResponse({"error": "인증이 필요합니다."}, status_code=401)
-        return await fn(request)
+        try:
+            return await fn(request)
+        except UnicodeDecodeError:
+            return JSONResponse({"ok": False, "error": "요청 본문이 UTF-8 이 아닙니다."}, 400)
+        except json.JSONDecodeError:
+            return JSONResponse({"ok": False, "error": "요청 본문이 올바른 JSON 이 아닙니다."}, 400)
     wrap.__name__ = getattr(fn, "__name__", "shared")
     return wrap
 
@@ -805,6 +810,86 @@ async def api_backfill(request):
 
 
 @shared
+async def api_chat(request):
+    """콘솔 채팅. 고른 채널·기간의 대화를 자료로 물려주고 묻는다."""
+    body = await request.json()
+    channel = (body.get("channel") or "").strip()
+    date = (body.get("date") or "").strip()
+    until = (body.get("until") or "").strip()
+    for d in (date, until):
+        if d and not db.valid_date(d):
+            return JSONResponse({"ok": False, "error": "날짜 형식이 잘못됐습니다: %s" % d}, 400)
+    if not (channel and date):
+        return JSONResponse({"ok": False, "error": "채널과 날짜를 먼저 고르세요."}, 400)
+
+    raw = body.get("messages") or []
+    hist = [{"role": m["role"], "content": str(m["content"])[:8000]}
+            for m in raw[-20:]                      # 최근 20턴만. 무한히 길어지지 않게
+            if isinstance(m, dict) and m.get("role") in ("user", "assistant")
+            and str(m.get("content") or "").strip()]
+    if not hist or hist[-1]["role"] != "user":
+        return JSONResponse({"ok": False, "error": "질문이 비어 있습니다."}, 400)
+
+    rows = await run_in_threadpool(remote.conversation, channel, date, until or None)
+    if not rows:
+        return JSONResponse({"ok": False, "error": "그 기간에 대화가 없습니다."}, 400)
+
+    span = "%s~%s" % (date, until) if until else date
+    name = rows[0].get("channel") or channel
+    ctx = digest.context_block(rows, name, span)
+    job_id = uuid.uuid4().hex[:12]
+    jobs[job_id] = {"done": False, "ok": False, "text": None, "lines": []}
+
+    def work():
+        text, err = digest.ask(hist, ctx)
+        jobs[job_id].update(ok=bool(text), text=text,
+                            lines=[err] if err else [], model=digest.model())
+        jobs[job_id]["done"] = True
+
+    threading.Thread(target=work, daemon=True).start()
+    return JSONResponse({"ok": True, "id": job_id, "count": len(rows), "span": span})
+
+
+@shared
+async def api_summarize(request):
+    """지금 보고 있는 대화를 그 자리에서 정리해 돌려준다. 디스코드에 올리지는 않는다."""
+    body = await request.json()
+    channel = (body.get("channel") or "").strip()
+    date = (body.get("date") or "").strip()
+    until = (body.get("until") or "").strip()
+    for d in (date, until):
+        if d and not db.valid_date(d):
+            return JSONResponse({"ok": False, "error": "날짜 형식이 잘못됐습니다: %s" % d}, 400)
+    if not (channel and date):
+        return JSONResponse({"ok": False, "error": "채널과 날짜가 필요합니다."}, 400)
+    if until and until < date:
+        return JSONResponse({"ok": False, "error": "끝 날짜가 시작 날짜보다 앞섭니다."}, 400)
+
+    rows = await run_in_threadpool(remote.conversation, channel, date, until or None)
+    if not rows:
+        return JSONResponse({"ok": False, "error": "그 기간에 대화가 없습니다."}, 400)
+
+    span = "%s~%s" % (date, until) if until else date
+    name = rows[0].get("channel") or channel
+    job_id = uuid.uuid4().hex[:12]
+    jobs[job_id] = {"lines": ["%s · %d건 정리 중..." % (span, len(rows))],
+                    "done": False, "ok": False, "text": None}
+
+    def work():
+        try:
+            text = digest.summarize(rows, name, span) or digest.stats(rows, name, span)
+            jobs[job_id].update(ok=bool(text), text=text,
+                                model=digest.model(), llm=digest.key_present(),
+                                lines=["%d건 정리 완료" % len(rows)])
+        except Exception as e:  # noqa: BLE001
+            jobs[job_id]["lines"] = [str(e)]
+        jobs[job_id]["done"] = True
+
+    threading.Thread(target=work, daemon=True).start()
+    return JSONResponse({"ok": True, "id": job_id, "count": len(rows), "span": span})
+
+
+@shared
 async def api_digest(request):
     """일일 결산 설정 조회/변경. 서버 관리 권한자만."""
     b = bot_bridge()
@@ -986,6 +1071,8 @@ app = Starlette(lifespan=MCP_APP.router.lifespan_context, routes=[
     Route("/api/collect", api_collect, methods=["POST"]),
     Route("/api/backfill", api_backfill, methods=["POST"]),
     Route("/api/optout", api_optout, methods=["GET", "POST"]),
+    Route("/api/summarize", api_summarize, methods=["POST"]),
+    Route("/api/chat", api_chat, methods=["POST"]),
     Route("/api/digest", api_digest, methods=["GET", "POST"]),
     Route("/api/digest/run", api_digest_run, methods=["POST"]),
     Route("/api/leaderboard", api_leaderboard),

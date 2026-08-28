@@ -175,10 +175,14 @@ def main():
     if "bot" in sys.modules:            # bot 임포트가 연 커넥션을 닫아야 파일이 지워진다
         sys.modules["bot"].conn.close()
     shutil.rmtree("data/_test_home", ignore_errors=True)
+    # 정리는 최선 노력만 — 임포트된 모듈이 커넥션을 물고 있어도 다음 실행 때 지운다
     for f in ("data/_test_launcher.db", "data/_test_launcher.db-wal",
               "data/_test_launcher.db-shm", "data/_test_launcher_accounts.json"):
-        if os.path.exists(f):
-            os.remove(f)
+        try:
+            if os.path.exists(f):
+                os.remove(f)
+        except OSError:
+            pass
     print("test_launcher: 통과")
 
 
