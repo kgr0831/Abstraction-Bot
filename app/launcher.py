@@ -36,6 +36,7 @@ from starlette.responses import FileResponse, HTMLResponse, JSONResponse
 from starlette.routing import Mount, Route
 
 import db
+import digest
 import mcp_server
 import remote
 
@@ -702,9 +703,13 @@ async def api_digest(request):
         return JSONResponse({"ok": False, "error": "시각은 0~23 사이 숫자여야 합니다."}, 400)
     if not 0 <= hour <= 23:
         return JSONResponse({"ok": False, "error": "시각은 0~23 사이여야 합니다."}, 400)
+    model = body.get("model") or None
+    if model and model not in digest.MODEL_IDS:
+        # 없는 모델을 넣으면 결산이 400 으로 죽으므로 여기서 막는다
+        return JSONResponse({"ok": False, "error": "모르는 모델입니다: %s" % model}, 400)
     try:
         out = await run_in_threadpool(
-            b.setup_digest, body.get("guild_id"), hour, body.get("channel_id"))
+            b.setup_digest, body.get("guild_id"), hour, body.get("channel_id"), model)
         return JSONResponse({"ok": True, **out})
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"ok": False, "error": str(e)}, 400)

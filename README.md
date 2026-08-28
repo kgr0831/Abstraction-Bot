@@ -40,8 +40,24 @@ https://<서버>/c/<내토큰>
 **여기만 서버 키를 쓴다.** 자동 결산은 특정 사용자의 Claude 를 쓸 수 없다 — 그 사람이
 앱을 꺼놨을 수 있기 때문이다. 개인 조회·정리는 여전히 각자 CLI 다.
 
-`ANTHROPIC_API_KEY` 가 없으면 **통계 결산**(건수·참여자·활발한 시간)으로 자동
-강등된다. 키 없이도 돌아간다.
+### 결산 모델
+
+콘솔에서 고른다. 기본은 **Opus 5**.
+
+| 모델 | 프로바이더 | 월 대략 |
+|---|---|---|
+| **Opus 5** (기본) | Anthropic | 약 6,000원 |
+| Fable 5 | Anthropic | 약 12,000원 |
+| Sonnet 5 | Anthropic | 약 2,400원 |
+| Haiku 4.5 | Anthropic | 약 1,200원 |
+| **Codex (Terra)** `gpt-5.6-terra` | OpenAI | — |
+
+하루 500건(입력 20K · 출력 1.5K) 기준 추정이다. Codex 는 codex CLI 가 쓰는 모델과
+같은 것이고 `OPENAI_API_KEY` 로 동작한다.
+
+**고른 모델의 프로바이더 키가 없으면 통계 결산**(건수·참여자·활발한 시간)으로 자동
+강등된다. 키 없이도 돌아간다. 없는 모델 ID 는 저장 단계에서 막는다 — 안 그러면
+결산 시각에 조용히 실패한다.
 
 ## 두 가지 모드
 
@@ -181,7 +197,7 @@ app/
   console.html      콘솔 UI (탭 4개). 요청마다 읽으므로 고치고 새로고침만 하면 된다
                     디자인 토큰은 orca 와 동일 (shadcn/ui neutral)
   remote.py         로컬/원격 판단과 조회. launcher 와 mcp_server 가 같이 쓴다
-  digest.py         일일 결산 본문 생성. 키 없으면 통계로 강등
+  digest.py         일일 결산 본문 생성. 모델 선택(Claude/Codex), 키 없으면 통계로 강등
 tests/              test_db · test_mcp · test_launcher · test_digest
 .mcp.json           Claude Code MCP 등록 (uv run 이라 경로 무관)
 data/               SQLite · 등록된 계정 (gitignore됨)
@@ -196,8 +212,9 @@ docs/               기획 문서 (로컬 전용, gitignore됨)
 | `LAUNCHER_PORT` | `8787` | 콘솔 포트 |
 | `LAUNCHER_URL` | `http://127.0.0.1:8787` | 봇이 안내하는 콘솔 주소 |
 | `SERVER_URL` | 자기 자신 | 비우면 서버 모드, 넣으면 클라이언트 모드 |
-| `ANTHROPIC_API_KEY` | 없음 | 일일 결산 요약용. 없으면 통계 결산 |
-| `DIGEST_MODEL` | `claude-opus-5` | 결산 모델. `claude-sonnet-5` 로 낮추면 비용 1/2.5 |
+| `ANTHROPIC_API_KEY` | 없음 | Claude 계열 결산용 |
+| `OPENAI_API_KEY` | 없음 | Codex(Terra) 결산용 |
+| `DIGEST_MODEL` | `claude-opus-5` | 콘솔 설정이 우선. 콘솔을 안 쓸 때의 기본값 |
 | `COLLECTOR_DB` · `COLLECTOR_ACCOUNTS` | `data/` 아래 | 테스트에서 갈아끼운다 |
 
 ## 테스트

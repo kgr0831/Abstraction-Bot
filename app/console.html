@@ -611,17 +611,32 @@ async function viewCollect(){
     '</div></div>';
   const hr = el('input'); hr.type='number'; hr.min=0; hr.max=23; hr.style.width='68px';
   hr.value = d.hour ?? 9;
-  const sb = el('button', d.channel_name?'ghost':''); sb.textContent = d.channel_name?'시각 변경':'결산 켜기';
+  const ms = el('select');
+  for(const m of (d.models||[])){
+    const o = el('option', null, esc(m.label)+(m.month!=='—' ? ' · '+esc(m.month) : ''));
+    o.value = m.id; o.title = m.note; if(m.id===d.model) o.selected = true;
+    ms.appendChild(o);
+  }
+  const sb = el('button', d.channel_name?'ghost':''); sb.textContent = d.channel_name?'저장':'결산 켜기';
   sb.onclick = async ()=>{
     const stop = spinning(sb); BUSY++; say('결산 채널 준비 중...','working');
-    const r = await post('/api/digest', {hour: Number(hr.value)||9});
+    const r = await post('/api/digest', {hour: Number(hr.value)||9, model: ms.value});
     BUSY--; stop();
     if(!r.ok){ dlog.style.display='block'; dlog.textContent=r.error||'실패'; say('안 됐어...','idle'); }
     else say('#'+r.name+' 에 매일 올릴게!','happy');
     viewCollect();
   };
-  const row = el('div','row'); row.append(el('span','meta','매일'), hr, el('span','meta','시'), sb);
+  const row = el('div','row');
+  row.append(el('span','meta','매일'), hr, el('span','meta','시'), ms, sb);
   set.appendChild(row); dg.appendChild(set);
+  if(d.models && !d.has_key){
+    const cur = (d.models||[]).find(m=>m.id===d.model) || {};
+    dg.appendChild(el('div','card','<div><div class="who">'+
+      '<span class="badge y">요약 키 없음</span></div><div class="meta">'+
+      esc(cur.label||d.model)+' 를 쓰려면 '+
+      (d.provider==='openai'?'OPENAI_API_KEY':'ANTHROPIC_API_KEY')+
+      ' 가 필요합니다. 없으면 통계 결산만 올라갑니다.</div></div>'));
+  }
 
   if(d.channel_name){
     const now = el('div','card');

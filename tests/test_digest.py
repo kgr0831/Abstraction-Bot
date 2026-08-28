@@ -39,7 +39,34 @@ def main():
         if key:
             os.environ["ANTHROPIC_API_KEY"] = key
 
-    # 2. 디스코드 2000자 제한에 맞춰 줄 단위로 자른다
+    # 2. 모델별 프로바이더와 필요한 키가 맞물린다
+    import db
+    conn = db.connect()
+    try:
+        assert digest.model() == digest.DEFAULT_MODEL
+        assert digest.spec()["provider"] == "anthropic"
+        db.set_setting(conn, "digest_model", "gpt-5.6-terra")
+        assert digest.model() == "gpt-5.6-terra"
+        assert digest.spec()["provider"] == "openai"
+        # 모르는 모델은 anthropic 으로 떨어뜨려 최소한 죽지는 않게
+        assert digest.spec("없는모델")["provider"] == "anthropic"
+        saved = {k: os.environ.pop(k, None) for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY")}
+        try:
+            assert not digest.key_present("claude-opus-5")
+            assert not digest.key_present("gpt-5.6-terra")
+            os.environ["OPENAI_API_KEY"] = "x"
+            assert digest.key_present("gpt-5.6-terra")
+            assert not digest.key_present("claude-opus-5"), "프로바이더 키가 섞임"
+        finally:
+            os.environ.pop("OPENAI_API_KEY", None)
+            for k, v in saved.items():
+                if v:
+                    os.environ[k] = v
+        db.set_setting(conn, "digest_model", None)
+    finally:
+        conn.close()
+
+    # 3. 디스코드 2000자 제한에 맞춰 줄 단위로 자른다
     long = "\n".join("줄 %d 짧은 내용" % i for i in range(400))
     parts = digest.chunks(long)
     assert len(parts) > 1
@@ -47,8 +74,7 @@ def main():
     assert "\n".join(parts) == long, "자르면서 내용이 바뀜"
     assert digest.chunks("한 줄") == ["한 줄"]
 
-    # 3. 어제 날짜는 KST 기준
-    import db
+    # 4. 어제 날짜는 KST 기준
     from datetime import datetime, timedelta
     assert digest.yesterday_kst() == (datetime.now(db.KST).date() - timedelta(days=1)).isoformat()
 

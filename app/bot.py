@@ -207,8 +207,8 @@ async def ensure_digest_channel(guild_id=None, name=DIGEST_CHANNEL):
     return await g.create_text_channel(name, topic="매일 자동으로 올라오는 대화 결산")
 
 
-def setup_digest(guild_id=None, hour=9, channel_id=None):
-    """콘솔이 부른다. 채널을 정하고 시각을 저장한다."""
+def setup_digest(guild_id=None, hour=9, channel_id=None, model=None):
+    """콘솔이 부른다. 채널·시각·모델을 저장한다."""
     ch = client.get_channel(int(channel_id)) if channel_id else _call(ensure_digest_channel(guild_id))
     if ch is None:
         raise NotReady("채널을 찾을 수 없습니다.")
@@ -216,9 +216,11 @@ def setup_digest(guild_id=None, hour=9, channel_id=None):
     try:
         db.set_setting(c, "digest_channel_id", ch.id)
         db.set_setting(c, "digest_hour", int(hour))
+        if model:
+            db.set_setting(c, "digest_model", model)
     finally:
         c.close()
-    return {"id": str(ch.id), "name": ch.name, "hour": int(hour)}
+    return {"id": str(ch.id), "name": ch.name, "hour": int(hour), "model": digest.model()}
 
 
 def digest_config():
@@ -228,7 +230,11 @@ def digest_config():
         return {"channel_id": cid,
                 "channel_name": getattr(client.get_channel(int(cid)), "name", None) if cid else None,
                 "hour": int(db.get_setting(c, "digest_hour", "9")),
-                "last": db.get_setting(c, "digest_last")}
+                "last": db.get_setting(c, "digest_last"),
+                "model": digest.model(),
+                "models": digest.MODELS,
+                "has_key": digest.key_present(),
+                "provider": digest.spec()["provider"]}
     finally:
         c.close()
 
