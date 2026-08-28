@@ -97,6 +97,15 @@ def ready():
     return client.is_ready() and not client.is_closed()
 
 
+def bridge_conn():
+    """콘솔에서 부르는 DB 작업용 커넥션.
+
+    모듈 전역 conn 은 봇 루프 스레드의 것이고 SQLite 커넥션은 스레드에 묶인다.
+    콘솔은 스레드풀에서 브리지를 부르므로 여기서 매번 새로 연다.
+    """
+    return db.connect()
+
+
 def _call(coro, timeout=120):
     if not ready():
         coro.close()
@@ -109,35 +118,48 @@ def guild_channels():
     if not ready():
         raise NotReady("봇이 아직 디스코드에 접속하지 않았습니다.")
     out = []
-    for g in client.guilds:
-        for ch in g.text_channels:
-            perms = ch.permissions_for(g.me)
-            out.append({
-                "id": str(ch.id),
-                "name": ch.name,
-                "guild": g.name,
-                "guild_id": str(g.id),
-                "readable": bool(perms.read_message_history and perms.view_channel),
-                "collected": db.is_collected(conn, ch.id),
-            })
-    return sorted(out, key=lambda c: (c["guild"], c["name"]))
+    c = bridge_conn()
+    try:
+        for g in client.guilds:
+            for ch in g.text_channels:
+                perms = ch.permissions_for(g.me)
+                out.append({
+                    "id": str(ch.id),
+                    "name": ch.name,
+                    "guild": g.name,
+                    "guild_id": str(g.id),
+                    "readable": bool(perms.read_message_history and perms.view_channel),
+                    "collected": db.is_collected(c, ch.id),
+                })
+    finally:
+        c.close()
+    return sorted(out, key=lambda x: (x["guild"], x["name"]))
 
 
 def start_collect(channel_id, notice=True):
     ch = client.get_channel(int(channel_id))
     if ch is None:
         raise NotReady("채널을 찾을 수 없습니다. 봇이 그 서버에 있는지 확인하세요.")
-    db.add_channel(conn, ch.id, ch.guild.id, ch.name)
+    c = bridge_conn()
+    try:
+        db.add_channel(c, ch.id, ch.guild.id, ch.name)
+    finally:
+        c.close()
     if notice:
         _call(ch.send(NOTICE))
     return ch.name
 
 
 def stop_collect(channel_id):
-    return db.remove_channel(conn, channel_id)
+    c = bridge_conn()
+    try:
+        return db.remove_channel(c, channel_id)
+    finally:
+        c.close()
 
 
 async def _backfill(ch, after, before, job):
+    # 봇 루프 스레드에서 돈다 (_call 이 넘긴다) — 전역 conn 을 그대로 써도 된다.
     n = 0
     async for msg in ch.history(limit=None, after=after, before=before, oldest_first=True):
         if msg.author.bot or db.is_opted_out(conn, msg.author.id):

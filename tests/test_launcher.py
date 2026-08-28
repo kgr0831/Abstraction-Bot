@@ -100,20 +100,47 @@ def main():
     assert c.post("/api/mcp/add", json={"name": "ok", "url": "ftp://a"}).status_code == 400
     assert c.post("/api/mcp/remove", json={"name": "../evil"}).status_code == 400
 
-    # 12. 연결 해제는 AGENTS_DIR 밖 경로를 지우지 않는다
+    # 12. 콘솔 브리지는 스레드마다 새 커넥션을 연다
+    #     (SQLite 커넥션은 스레드에 묶여서, 봇 루프의 conn 을 스레드풀에서 쓰면 터진다)
+    import threading
+
+    import bot
+
+    assert bot.bridge_conn() is not bot.bridge_conn()
+    boom = []
+
+    def worker():
+        try:
+            c = bot.bridge_conn()
+            try:
+                db.is_collected(c, "1")
+                db.remove_channel(c, "1")
+            finally:
+                c.close()
+        except Exception as e:  # noqa: BLE001
+            boom.append(e)
+
+    t = threading.Thread(target=worker)
+    t.start()
+    t.join()
+    assert not boom, boom
+
+    # 13. 연결 해제는 AGENTS_DIR 밖 경로를 지우지 않는다
     with tempfile.TemporaryDirectory() as outside:
         probe = Path(outside) / "keep.txt"
         probe.write_text("x", encoding="utf-8")
         c.post("/api/unlink", json={"home": str(Path(outside))})
         assert probe.exists(), "AGENTS_DIR 밖 경로를 지움 — 경로 가드 실패"
 
-    # 13. 수집 거부 왕복
+    # 14. 수집 거부 왕복
     assert c.get("/api/optout").json()["opted_out"] is False
     assert c.post("/api/optout", json={"out": True}).json()["opted_out"] is True
     assert c.get("/api/optout").json()["opted_out"] is True
     assert c.post("/api/optout", json={"out": False}).json()["opted_out"] is False
 
     import shutil
+    if "bot" in sys.modules:            # bot 임포트가 연 커넥션을 닫아야 파일이 지워진다
+        sys.modules["bot"].conn.close()
     shutil.rmtree("data/_test_home", ignore_errors=True)
     for f in ("data/_test_launcher.db", "data/_test_launcher.db-wal",
               "data/_test_launcher.db-shm", "data/_test_launcher_accounts.json"):
