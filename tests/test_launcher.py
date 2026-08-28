@@ -84,6 +84,14 @@ def main():
     assert far.get("/api/channels", headers={"X-Abstraction-Token": tok}).status_code == 200
     assert far.get("/api/channels", headers={"X-Abstraction-Token": "wrong"}).status_code == 401
 
+    # 8b. 터널/프록시를 거친 요청은 루프백처럼 보여도 토큰을 요구한다
+    #     (cloudflared 는 127.0.0.1 로 전달하므로 이게 없으면 전원 무토큰 통과)
+    assert c.get("/api/channels").status_code == 200, "자기 PC 콘솔이 막힘"
+    for h in ("X-Forwarded-For", "CF-Connecting-IP", "X-Real-IP"):
+        assert c.get("/api/channels", headers={h: "203.0.113.9"}).status_code == 401, h
+    assert c.get("/api/channels", headers={"X-Forwarded-For": "203.0.113.9",
+                                           "X-Abstraction-Token": tok}).status_code == 200
+
     # 9. 계정이 있어도 관리 권한이 없으면 수집 관리는 막힌다
     fake_home = str((Path("data") / "_test_home").resolve())
     launcher.save_accounts([{"agent": "claude", "identity": "a@b.c", "home": fake_home}])

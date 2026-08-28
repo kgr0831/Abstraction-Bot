@@ -287,10 +287,22 @@ def auth_link(request):
         conn.close()
 
 
+# 공개(터널/호스팅) 배포면 루프백 예외를 끈다. 켜두면 프록시가 요청을
+# 127.0.0.1 로 전달하기 때문에 바깥 사람이 전부 무토큰으로 통과한다.
+PUBLIC = (os.getenv("PUBLIC_SERVER", "") or "").strip().lower() in ("1", "true", "yes", "on")
+FWD_HEADERS = ("x-forwarded-for", "cf-connecting-ip", "x-real-ip", "forwarded")
+
+
 def allowed(request):
-    # ponytail: 토큰이거나 루프백이거나. 팀 밖에 공개할 거면 제대로 된 인증이 필요하다
+    if auth_link(request):
+        return True
+    if PUBLIC:
+        return False
+    # 프록시를 거쳐 왔다면 루프백이 아니다 — 헤더가 하나라도 있으면 토큰을 요구한다
+    if any(h in request.headers for h in FWD_HEADERS):
+        return False
     host = (request.client.host if request.client else "") or ""
-    return bool(auth_link(request)) or host in ("127.0.0.1", "::1", "localhost")
+    return host in ("127.0.0.1", "::1", "localhost")
 
 
 async def forward(request):
