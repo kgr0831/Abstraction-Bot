@@ -110,7 +110,11 @@ nav{overflow-y:auto;overflow-x:hidden;flex:1;margin:0 -2px;padding:0 2px}
 .app.rail .hebiwrap{justify-content:center}
 .hebiart{width:52px;height:52px;flex:0 0 52px;position:relative}
 .app.rail .hebiart{width:38px;height:38px;flex-basis:38px}
-.hebiart svg,.hebiart img{width:100%;height:100%;display:block;object-fit:contain}
+.hebiart svg{width:100%;height:100%;display:block;object-fit:contain}
+.hebiart img{width:100%;height:100%;display:block;object-fit:cover;border-radius:9999px}
+.hebihero{width:76px;height:76px;margin:0 auto 14px;animation:bob 3.4s ease-in-out infinite}
+.hebihero svg,.hebihero img{width:100%;height:100%;display:block}
+.hebihero img{object-fit:cover;border-radius:9999px;border:1px solid var(--border)}
 .hebiart.bob{animation:bob 3.4s ease-in-out infinite}
 .hebiart.spin:before{content:"";position:absolute;inset:-4px;border-radius:50%;
   border:2px solid transparent;border-top-color:var(--hebi);animation:spin .9s linear infinite}
@@ -234,7 +238,8 @@ a.big{display:inline-block;margin-top:9px;padding:7px 14px;background:var(--hebi
 .turn.me{justify-content:flex-end}
 .turn .mark{width:26px;height:26px;flex:0 0 26px;border-radius:9999px;overflow:hidden;
   background:var(--secondary);border:1px solid var(--border);display:grid;place-items:center}
-.turn .mark svg,.turn .mark img{width:100%;height:100%;object-fit:contain}
+.turn .mark svg{width:100%;height:100%;object-fit:contain}
+.turn .mark img{width:100%;height:100%;object-fit:cover}
 .turn .body{min-width:0;font-size:14px;line-height:1.72;white-space:pre-wrap;word-break:break-word}
 .turn.me .body{max-width:74%;background:var(--secondary);color:var(--secondary-foreground);
   border:1px solid var(--border);border-radius:var(--radius);padding:9px 14px}
@@ -455,14 +460,20 @@ function hebiSVG(state){
       'stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>';
 }
 
+// Hebi 얼굴은 여기서만 고른다. 넣어둔 이미지 > 봇 아바타 > 내장 SVG.
+// 봇 아바타가 곧 Hebi 라서, 따로 넣은 게 없으면 그걸 그대로 쓴다.
+function hebiFace(state){
+  if((ME.mascot||[]).includes(state)) return '<img alt="Hebi" src="/mascot/'+state+'">';
+  if(ME.icon) return '<img alt="Hebi" src="'+ME.icon+'">';
+  return hebiSVG(state);
+}
+
 let hebiState = 'idle';
 function hebi(state, line){
   hebiState = state || hebiState;
   const box = $('#hebi');
   box.className = 'hebiart ' + (hebiState==='working' ? 'spin' : 'bob');
-  if((ME.mascot||[]).includes(hebiState))
-    box.innerHTML = '<img alt="Hebi" src="/mascot/'+hebiState+'">';
-  else box.innerHTML = hebiSVG(hebiState);
+  box.innerHTML = hebiFace(hebiState);
   if(line) $('#say').textContent = line;
 }
 const say = (line, state) => hebi(state, line);
@@ -771,6 +782,7 @@ async function viewAsk(){
   if(!ME.account){
     const c = el('div','card'); c.style.display='block';   // 카드 기본은 가로 배치
     c.innerHTML = '<div class="empty" style="padding:30px 16px 22px">'+
+      '<div class="hebihero">'+hebiFace('sleep')+'</div>'+
       '<b style="color:var(--foreground);font-size:15px">먼저 에이전트를 연결해 주세요</b><br><br>'+
       '묻고 시키는 일은 연결한 <b>클로드</b>나 <b>코덱스</b>가 대신합니다.<br>'+
       '설정 · 계정 연결에서 붙인 뒤 다시 오세요.</div>';
@@ -848,15 +860,15 @@ async function viewAsk(){
 
   function mark(){
     const m = el('div','mark');
-    if((ME.mascot||[]).includes('idle')) m.innerHTML = '<img alt="" src="/mascot/idle">';
-    else m.innerHTML = hebiSVG('idle');
+    m.innerHTML = hebiFace('idle');
     return m;
   }
 
   function draw(){
     thread.textContent='';
     if(!ASKLOG.length){
-      thread.innerHTML = '<div class="empty">고른 채널과 기간의 대화를 자료로 놓고 답합니다.<br>'+
+      thread.innerHTML = '<div class="empty"><div class="hebihero">'+hebiFace('idle')+'</div>'+
+        '고른 채널과 기간의 대화를 자료로 놓고 답합니다.<br>'+
         '자료에 없으면 없다고 말합니다.</div>';
       return;
     }

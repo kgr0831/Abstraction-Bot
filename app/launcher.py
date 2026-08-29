@@ -297,7 +297,7 @@ def bot_icon():
         with urllib.request.urlopen(req, timeout=10) as r:
             d = json.loads(r.read().decode("utf-8"))
         if d.get("avatar"):
-            _icon = "https://cdn.discordapp.com/avatars/%s/%s.png?size=64" % (d["id"], d["avatar"])
+            _icon = "https://cdn.discordapp.com/avatars/%s/%s.png?size=128" % (d["id"], d["avatar"])
     except (urllib.error.URLError, OSError, ValueError, KeyError):
         pass
     return _icon or None
