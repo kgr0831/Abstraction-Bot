@@ -461,7 +461,8 @@ async def page(request):
         .replace("__MCP__", json.dumps(MCP_CATALOG, ensure_ascii=False))
         .replace("__SELFMCP__", json.dumps(
             {k: SELF_MCP[k] for k in ("name", "label", "desc")}, ensure_ascii=False))
-        .replace("__CODE__", json.dumps(request.query_params.get("code", "")))
+        .replace("__CODE__", json.dumps(request.query_params.get("code", ""))),
+        headers={"Cache-Control": "no-store"},   # 고친 화면이 캐시에 막히지 않게
     )
 
 

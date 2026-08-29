@@ -561,6 +561,7 @@ async function boot(rerender){
   if(!BUSY) hebi(ME.bot_ready?'idle':'sleep', idleLine());
   if(rerender !== false) route();
   watch();
+  askWatch();          // 새로고침 전에 돌던 묻기를 이어받는다
 }
 
 async function tick(){
@@ -580,7 +581,10 @@ function route(){
   clearInterval(TYPING); TYPING=null;
   const cur = nav();
   pref('tab', cur);
-  $('#view').textContent='';
+  // 노드를 통째로 갈아끼운다. 비동기 뷰가 늦게 돌아와도 떨어져 나간 옛 노드에
+  // 붙으므로 화면이 섞이지 않는다.
+  const fresh = el('div'); fresh.id = 'view';
+  $('#view').replaceWith(fresh);
   ({chat:viewChat, ask:viewAsk, collect:viewCollect, digest:viewDigest,
     connect:viewConnect, mcp:viewMcp, me:viewMe, board:viewBoard}[cur] || viewChat)();
 }
@@ -737,8 +741,46 @@ let ASKLOG = (()=>{ try { return JSON.parse(pref('asklog') || '[]'); }
                     catch(e){ return []; } })();
 function saveAsk(){ try { pref('asklog', JSON.stringify(ASKLOG.slice(-40))); } catch(e){} }
 
+// 진행 중인 묻기. 뷰 안에 두면 탭을 옮기는 순간 사라지므로 밖에 둔다.
+let ASKJOB = (()=>{ try { return JSON.parse(pref('askjob') || 'null'); }
+                    catch(e){ return null; } })();
+let ASKPOLL = null;   // route() 가 건드리지 않는 별도 폴링
+let ASKVIEW = null;   // 묻기 탭이 떠 있으면 답을 흘려 넣을 자리
+function saveJob(){ try { pref('askjob', ASKJOB ? JSON.stringify(ASKJOB) : ''); } catch(e){} }
+
+function askWatch(){
+  if(ASKPOLL || !ASKJOB) return;
+  BUSY++;                        // 진행 중엔 실시간 갱신이 화면을 갈아엎지 않는다
+  say('생각하는 중...','working');
+  ASKPOLL = setInterval(async ()=>{
+    const j = await api('/api/job/'+ASKJOB.id);
+    if(!j.done) return;
+    clearInterval(ASKPOLL); ASKPOLL = null;
+    const text = j.ok ? j.text : ((j.lines||['답을 못 받았습니다.']).join(' '));
+    ASKLOG.push({role:'assistant', content:text}); saveAsk();
+    ASKJOB = null; saveJob();
+    BUSY--;
+    // 묻기 탭이 떠 있으면 흘려 보여주고, 아니면 조용히 담아만 둔다
+    if(ASKVIEW && document.contains(ASKVIEW.wait)) ASKVIEW.deliver(text, j.ok);
+    else say(j.ok ? '답 다 썼어! 묻기 탭에서 봐' : '잘 안 됐어...', j.ok?'happy':'idle');
+  }, 900);
+}
+
 async function viewAsk(){
   const v = $('#view');
+  if(!ME.account){
+    const c = el('div','card'); c.style.display='block';   // 카드 기본은 가로 배치
+    c.innerHTML = '<div class="empty" style="padding:30px 16px 22px">'+
+      '<b style="color:var(--foreground);font-size:15px">먼저 에이전트를 연결해 주세요</b><br><br>'+
+      '묻고 시키는 일은 연결한 <b>클로드</b>나 <b>코덱스</b>가 대신합니다.<br>'+
+      '설정 · 계정 연결에서 붙인 뒤 다시 오세요.</div>';
+    const b = el('button', null, '계정 연결하러 가기');
+    b.style.cssText = 'display:block;margin:0 auto';
+    b.onclick = ()=>{ location.hash = '#connect'; };
+    c.appendChild(b); v.appendChild(c);
+    say('클로드나 코덱스를 붙여줘!','idle');
+    return;
+  }
   const thread = el('div', null); thread.id='thread'; v.appendChild(thread);
   const quick = el('div','quick'); v.appendChild(quick);
 
@@ -796,6 +838,14 @@ async function viewAsk(){
   });
   send.onclick = go;
 
+  // 다른 탭에 다녀오는 사이에도 요청은 계속 돈다 — 돌아오면 그대로 이어 보여준다
+  if(ASKJOB){
+    note.textContent = (ASKJOB.span||'') + ' · ' + (ASKJOB.count||0) + '건';
+    hook(thinking('생각하는 중'));
+    send.disabled = ta.disabled = true;
+    askWatch();
+  }
+
   function mark(){
     const m = el('div','mark');
     if((ME.mascot||[]).includes('idle')) m.innerHTML = '<img alt="" src="/mascot/idle">';
@@ -845,6 +895,18 @@ async function viewAsk(){
     }, 16);
   }
 
+  // 답이 오면 흘려 넣을 자리를 askWatch 에게 알려준다
+  function hook(wait){
+    ASKVIEW = { wait, deliver(text, ok){
+      const body = wait.querySelector('.body');
+      body.textContent = '';
+      typeOut(body, text, ()=>{
+        send.disabled = ta.disabled = false; ta.focus();
+        say(ok?'답했어!':'잘 안 됐어...', ok?'happy':'idle');
+      });
+    }};
+  }
+
   async function go(){
     const q = ta.value.trim();
     if(!q || send.disabled) return;
@@ -852,30 +914,23 @@ async function viewAsk(){
     ASKLOG.push({role:'user', content:q}); saveAsk();
     ta.value=''; grows(); draw();
     send.disabled = ta.disabled = true;
-    BUSY++; say('읽는 중...','working');
+    say('읽는 중...','working');
     const wait = thinking('대화를 읽는 중');
     const d1 = a1.value || today(), d2 = a2.value || today();
     const r = await post('/api/chat', {channel: sel.value, date: d1, until: d2, messages: ASKLOG});
-    const done = ()=>{ send.disabled = ta.disabled = false; ta.focus(); BUSY--; };
     if(!r.ok){
       wait.remove(); ASKLOG.push({role:'assistant', content: r.error || '실패했습니다.'});
-      saveAsk(); draw(); done(); say('그건 못 하겠어...','idle'); return;
+      saveAsk(); draw();
+      send.disabled = ta.disabled = false; ta.focus();
+      say('그건 못 하겠어...','idle'); return;
     }
     note.textContent = r.span + ' · ' + r.count + '건';
     wait.querySelector('.body').innerHTML =
       '<span style="color:var(--muted-foreground)">생각하는 중</span> '+
       '<span class="think"><i></i><i></i><i></i></span>';
-    clearInterval(POLL);
-    POLL = setInterval(async ()=>{
-      const j = await api('/api/job/'+r.id);
-      if(!j.done) return;
-      clearInterval(POLL); POLL=null;
-      const text = j.ok ? j.text : ((j.lines||['답을 못 받았습니다.']).join(' '));
-      ASKLOG.push({role:'assistant', content:text}); saveAsk();
-      const body = wait.querySelector('.body');
-      body.textContent = '';
-      typeOut(body, text, ()=>{ done(); say(j.ok?'답했어!':'잘 안 됐어...', j.ok?'happy':'idle'); });
-    }, 900);
+    ASKJOB = {id: r.id, span: r.span, count: r.count}; saveJob();
+    hook(wait);
+    askWatch();
   }
 }
 
