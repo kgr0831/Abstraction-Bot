@@ -1,0 +1,56 @@
+# Oracle Always Free VM 한 대에 올리는 전부.
+#
+#   [인터넷] --443--> caddy (인증서 자동) --> app:8787 (봇 + 콘솔 + SQLite + CLI)
+#                     duckdns: 공인 IP 를 주기적으로 갱신
+#
+#   cd deploy && cp .env.example .env && vi .env && docker compose up -d --build
+
+services:
+  app:
+    build: ..
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # 터널·프록시 뒤에서는 루프백 무토큰 예외를 반드시 끈다.
+      # 안 끄면 주소만 아는 사람이 전부 통과한다.
+      PUBLIC_SERVER: "1"
+      LAUNCHER_HOST: 0.0.0.0
+      LAUNCHER_PORT: "8787"
+      SERVER_URL: "https://${SITE_DOMAIN}"
+      LAUNCHER_URL: "https://${SITE_DOMAIN}"
+    volumes:
+      # SQLite, 연동 정보, 계정마다 격리된 CLI 홈. 빼면 재시작 때 전원 재로그인.
+      - data:/app/data
+    expose:
+      - "8787"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_DOMAIN: "${SITE_DOMAIN}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data          # 인증서. 지우면 매번 새로 받다가 한도에 걸린다
+      - caddy_config:/config
+    depends_on:
+      - app
+
+  duckdns:
+    image: curlimages/curl:latest
+    restart: unless-stopped
+    environment:
+      DUCKDNS_SUB: "${DUCKDNS_SUB}"
+      DUCKDNS_TOKEN: "${DUCKDNS_TOKEN}"
+    entrypoint:
+      - sh
+      - -c
+      - 'while :; do curl -fsS "https://www.duckdns.org/update?domains=$${DUCKDNS_SUB}&token=$${DUCKDNS_TOKEN}&ip=" || true; sleep 300; done'
+
+volumes:
+  data:
+  caddy_data:
+  caddy_config:

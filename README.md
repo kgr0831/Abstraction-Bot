@@ -77,11 +77,12 @@ https://<서버>/c/<내토큰>
 ## 배포
 
 무료로 24시간 돌리는 법은 [DEPLOY.md](DEPLOY.md) 에 있다 —
-**DisHost(봇 호스팅) + Cloudflare Tunnel** 조합이다.
+**Oracle Always Free + DuckDNS + Caddy** 조합이다. `deploy/docker-compose.yml`
+하나로 봇·콘솔·인증서·DNS 갱신이 다 뜬다.
 
-실측 **95MB / 패키지 57MB** 라 128MB 짜리 무료 티어에 여유 있게 들어간다.
-그러려고 LLM 은 공식 SDK(42MB) 대신 stdlib `urllib` 로 부른다 — 하루 한 번
-HTTP POST 한 방에 SDK 두 개를 지고 갈 이유가 없다.
+**에이전트 CLI 가 서버에서 돈다.** API 키를 안 쓰기로 했으므로 `claude` 와
+`codex` 를 이미지에 넣는다. 한 번 호출에 300~500MB 를 쓰므로 메모리가
+**2GB 이상** 이어야 한다 — 128MB 봇 호스팅으로는 안 된다.
 
 ## 두 가지 모드
 
@@ -238,7 +239,7 @@ MCP 툴 4개는 전부 앞단에서 연동을 확인한다. 이 PC에 등록된 
 run.py              진입점 — 봇 + 콘솔을 한 프로세스로
 start.bat           로컬 실행. 창을 닫으면 둘 다 종료
 Dockerfile          컨테이너 배포용
-deploy/start.sh     DisHost(Pterodactyl) 시작 — cloudflared + 앱을 같이 띄운다
+deploy/            docker compose 한 벌 — 앱 + Caddy(인증서) + DuckDNS 갱신
 app/
   bot.py            수집 봇 + 콘솔용 브리지. LLM 없음
   db.py             스키마 + 공용 쿼리. UTC 저장, KST 조회

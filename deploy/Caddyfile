@@ -1,0 +1,5 @@
+# 인증서는 Caddy 가 Let's Encrypt 에서 알아서 받고 알아서 갱신한다.
+# 되려면 80·443 이 밖에서 열려 있고 도메인이 이 서버를 가리켜야 한다.
+{$SITE_DOMAIN} {
+	reverse_proxy app:8787
+}
