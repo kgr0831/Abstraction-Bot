@@ -20,7 +20,7 @@
   --gold:#d4a017; --silver:#8e9099; --bronze:#a9713b;
   --radius:.625rem;
   --radius-sm:calc(var(--radius) * .6); --radius-md:calc(var(--radius) * .8);
-  --sidebar-width:239px;
+  --sidebar-width:232px; --rail:58px;
   color-scheme:light;
 }
 @media (prefers-color-scheme:dark){:root{
@@ -42,47 +42,81 @@
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
 *{box-sizing:border-box;margin:0}
-html,body{height:100%}
+html,body{height:100%;overflow:hidden}
 body{background:var(--background);color:var(--foreground);
   font:14px/1.55 ui-sans-serif,system-ui,-apple-system,'Segoe UI','Malgun Gothic',sans-serif;
   -webkit-font-smoothing:antialiased}
-.app{display:flex;min-height:100%}
+.app{display:flex;height:100vh}
 
-/* 사이드바 */
+/* ── 사이드바 ── */
 .sidebar{width:var(--sidebar-width);flex:0 0 var(--sidebar-width);background:var(--sidebar);
   color:var(--sidebar-foreground);border-right:1px solid var(--sidebar-border);
-  display:flex;flex-direction:column;padding:14px 10px;position:sticky;top:0;height:100vh}
-.brand{display:flex;align-items:center;gap:9px;padding:6px 8px 14px}
+  display:flex;flex-direction:column;padding:12px 10px;height:100vh;
+  transition:width .2s cubic-bezier(.4,0,.2,1),flex-basis .2s cubic-bezier(.4,0,.2,1)}
+.app.rail .sidebar{width:var(--rail);flex-basis:var(--rail);padding:12px 8px}
+.brand{display:flex;align-items:center;gap:9px;padding:4px 6px 12px}
 .logo{width:26px;height:26px;border-radius:var(--radius-sm);background:var(--primary);
   color:var(--primary-foreground);display:grid;place-items:center;font-weight:800;font-size:13px;
   flex:0 0 26px;overflow:hidden}
 .logo.img{background:var(--secondary);border:1px solid var(--border)}
 .logo img{width:100%;height:100%;object-fit:cover;display:block}
-.brand b{font-size:13.5px;font-weight:650;letter-spacing:-.01em}
+.brand b{font-size:13.5px;font-weight:650;letter-spacing:-.01em;display:block}
 .brand span{display:block;font-size:11px;color:var(--muted-foreground);font-weight:400}
+.brandtext{min-width:0;overflow:hidden;white-space:nowrap;flex:1}
+.toggle{width:26px;height:26px;flex:0 0 26px;padding:0;border-radius:var(--radius-sm);
+  background:transparent;color:var(--muted-foreground);border:1px solid transparent;
+  display:grid;place-items:center;cursor:pointer}
+.toggle:hover{background:var(--sidebar-accent);color:var(--foreground)}
+.toggle svg{width:15px;height:15px;transition:transform .2s ease}
+.app.rail .toggle svg{transform:rotate(180deg)}
+
+nav{overflow-y:auto;overflow-x:hidden;flex:1;margin:0 -2px;padding:0 2px}
 .navlink{display:flex;align-items:center;gap:10px;padding:7px 9px;border-radius:var(--radius-md);
   color:var(--muted-foreground);text-decoration:none;font-size:13.5px;font-weight:500;
-  margin-bottom:1px;transition:background .12s,color .12s}
-.navlink:hover{background:var(--sidebar-accent);color:var(--sidebar-accent-foreground)}
-.navlink.on{background:var(--sidebar-accent);color:var(--sidebar-accent-foreground);font-weight:600}
+  margin-bottom:1px;white-space:nowrap;overflow:hidden;cursor:pointer;
+  border:0;background:transparent;width:100%;
+  transition:background .13s ease,color .13s ease}
+.navlink:hover{background:var(--sidebar-accent);color:var(--sidebar-accent-foreground);opacity:1}
+.navlink.on{background:var(--sidebar-accent);color:var(--sidebar-accent-foreground);font-weight:650}
 .navlink svg{width:16px;height:16px;flex:0 0 16px;opacity:.85}
+.navlink .lbl{flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis}
+.navlink .caret{width:13px;height:13px;flex:0 0 13px;opacity:.6;
+  transition:transform .2s cubic-bezier(.4,0,.2,1)}
+.navgroup.open > .navlink .caret{transform:rotate(90deg)}
+.subnav{overflow:hidden;max-height:0;transition:max-height .22s cubic-bezier(.4,0,.2,1)}
+.navgroup.open .subnav{max-height:220px}
+.subnav a{display:flex;align-items:center;gap:9px;padding:6px 9px 6px 16px;
+  margin:1px 0 1px 12px;border-left:1px solid var(--border);border-radius:0 var(--radius-md) var(--radius-md) 0;
+  color:var(--muted-foreground);text-decoration:none;font-size:13px;white-space:nowrap;
+  transition:background .13s ease,color .13s ease,border-color .13s ease}
+.subnav a:hover{background:var(--sidebar-accent);color:var(--sidebar-accent-foreground)}
+.subnav a.on{color:var(--sidebar-accent-foreground);font-weight:650;
+  border-left-color:var(--hebi);background:var(--sidebar-accent)}
+.subnav a svg{width:14px;height:14px;flex:0 0 14px;opacity:.8}
+.app.rail .navlink .lbl,.app.rail .navlink .caret,.app.rail .brandtext,
+.app.rail .bubble,.app.rail .stat{display:none}
+.app.rail .navlink{justify-content:center;padding:8px 0}
+.app.rail .subnav{max-height:0!important}
 
-/* Hebi */
-.hebi{margin-top:auto;padding-top:10px}
+/* ── Hebi ── */
+.hebi{padding-top:10px}
 .bubble{position:relative;background:var(--card);border:1px solid var(--border);
   border-radius:var(--radius);padding:8px 11px;font-size:12px;line-height:1.45;
-  color:var(--foreground);margin-bottom:9px;min-height:34px}
-.bubble:after{content:"";position:absolute;left:26px;bottom:-6px;width:10px;height:10px;
+  margin-bottom:9px;min-height:34px;animation:fadein .25s ease}
+.bubble:after{content:"";position:absolute;left:24px;bottom:-6px;width:10px;height:10px;
   background:var(--card);border-right:1px solid var(--border);border-bottom:1px solid var(--border);
   transform:rotate(45deg)}
 .hebiwrap{display:flex;align-items:flex-end;gap:9px}
-.hebiart{width:58px;height:58px;flex:0 0 58px;position:relative}
+.app.rail .hebiwrap{justify-content:center}
+.hebiart{width:52px;height:52px;flex:0 0 52px;position:relative}
+.app.rail .hebiart{width:38px;height:38px;flex-basis:38px}
 .hebiart svg,.hebiart img{width:100%;height:100%;display:block;object-fit:contain}
 .hebiart.bob{animation:bob 3.4s ease-in-out infinite}
 .hebiart.spin:before{content:"";position:absolute;inset:-4px;border-radius:50%;
   border:2px solid transparent;border-top-color:var(--hebi);animation:spin .9s linear infinite}
 @keyframes bob{0%,100%{transform:translateY(0) rotate(-1.5deg)}50%{transform:translateY(-4px) rotate(1.5deg)}}
 @keyframes spin{to{transform:rotate(360deg)}}
+@keyframes fadein{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 .stat{font-size:11.5px;color:var(--muted-foreground);line-height:1.5;flex:1;min-width:0;
   overflow:hidden;text-overflow:ellipsis}
 .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;
@@ -92,11 +126,17 @@ body{background:var(--background);color:var(--foreground);
 @keyframes pulse{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 55%,transparent)}
   70%{box-shadow:0 0 0 5px transparent}}
 
-/* 본문 */
-.main{flex:1;min-width:0;padding:34px 40px 72px;max-width:940px}
-.head{margin-bottom:22px;display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+/* ── 본문 ── */
+.main{flex:1;min-width:0;height:100vh;overflow-y:auto;padding:30px 40px 60px}
+.main .inner{max-width:900px}
+.main.full{overflow:hidden;display:flex;flex-direction:column;padding-bottom:22px}
+.main.full .inner{max-width:1080px;flex:1;display:flex;flex-direction:column;min-height:0;width:100%}
+.head{margin-bottom:20px}
 .head h1{font-size:21px;font-weight:650;letter-spacing:-.02em}
 .head p{color:var(--muted-foreground);font-size:13.5px;margin-top:3px}
+#view{animation:viewin .22s ease}
+@keyframes viewin{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.main.full #view{flex:1;display:flex;flex-direction:column;min-height:0}
 h2{font-size:12px;font-weight:600;color:var(--muted-foreground);text-transform:uppercase;
   letter-spacing:.07em;margin:26px 0 9px}
 h2:first-child{margin-top:0}
@@ -104,10 +144,8 @@ h2:first-child{margin-top:0}
 .card{background:var(--card);color:var(--card-foreground);border:1px solid var(--border);
   border-radius:var(--radius);padding:13px 15px;margin-bottom:8px;display:flex;
   align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
-  transition:border-color .14s,transform .14s}
+  transition:border-color .14s ease;animation:fadein .22s ease}
 .card:hover{border-color:color-mix(in srgb,var(--hebi) 40%,var(--border))}
-.card.new{animation:slidein .26s ease-out}
-@keyframes slidein{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
 .card>div:first-child{min-width:0;flex:1}
 .lead{display:flex;align-items:center;gap:11px;min-width:0;flex:1}
 .svc{width:28px;height:28px;flex:0 0 28px;border-radius:var(--radius-sm);overflow:hidden;
@@ -129,10 +167,10 @@ h2:first-child{margin-top:0}
 
 button{font:inherit;font-weight:550;font-size:13.5px;padding:7px 14px;border:1px solid transparent;
   border-radius:var(--radius-md);background:var(--primary);color:var(--primary-foreground);
-  cursor:pointer;transition:opacity .12s,background .12s;white-space:nowrap;
-  display:inline-flex;align-items:center;gap:7px}
-button:hover{opacity:.88}
-button:disabled{opacity:.45;cursor:not-allowed}
+  cursor:pointer;transition:opacity .12s ease,background .12s ease,transform .1s ease;
+  white-space:nowrap;display:inline-flex;align-items:center;gap:7px}
+button:hover{opacity:.88} button:active{transform:scale(.97)}
+button:disabled{opacity:.45;cursor:not-allowed;transform:none}
 button.ghost{background:transparent;color:var(--foreground);border-color:var(--border)}
 button.ghost:hover{background:var(--accent);opacity:1}
 button.danger{background:transparent;color:var(--destructive);
@@ -146,12 +184,13 @@ input::placeholder{color:var(--muted-foreground)}
 label.f{font-size:12.5px;color:var(--muted-foreground);display:flex;gap:6px;align-items:center}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
 .chip{border:1px solid var(--border);border-radius:9999px;padding:3.5px 12px;font-size:12.5px;
-  cursor:pointer;color:var(--muted-foreground);background:var(--background);
-  transition:background .12s,color .12s;user-select:none}
+  cursor:pointer;color:var(--muted-foreground);background:var(--background);user-select:none;
+  transition:background .12s ease,color .12s ease,transform .1s ease}
 .chip:hover{background:var(--accent);color:var(--accent-foreground)}
+.chip:active{transform:scale(.96)}
 .chip.on{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary)}
 
-/* 로딩 */
+/* ── 로딩 ── */
 .spin{width:14px;height:14px;border:2px solid color-mix(in srgb,currentColor 25%,transparent);
   border-top-color:currentColor;border-radius:50%;animation:spin .75s linear infinite;
   display:inline-block;flex:0 0 14px}
@@ -168,6 +207,14 @@ label.f{font-size:12.5px;color:var(--muted-foreground);display:flex;gap:6px;alig
   background:linear-gradient(90deg,var(--hebi),var(--hebi-deep));
   background-size:200% 100%;animation:flow 1.3s linear infinite;width:100%}
 @keyframes flow{to{background-position:-200% 0}}
+.think{display:inline-flex;gap:3px;align-items:center;vertical-align:2px}
+.think i{width:4px;height:4px;border-radius:50%;background:currentColor;opacity:.35;
+  animation:blink 1.2s ease-in-out infinite}
+.think i:nth-child(2){animation-delay:.18s} .think i:nth-child(3){animation-delay:.36s}
+@keyframes blink{0%,100%{opacity:.25;transform:translateY(0)}50%{opacity:1;transform:translateY(-2px)}}
+.caret2{display:inline-block;width:2px;height:1em;background:var(--hebi);
+  vertical-align:-2px;margin-left:1px;animation:cblink 1s step-end infinite}
+@keyframes cblink{50%{opacity:0}}
 
 .log{white-space:pre-wrap;background:var(--muted);border:1px solid var(--border);
   border-radius:var(--radius);padding:11px 13px;margin-top:10px;color:var(--muted-foreground);
@@ -176,25 +223,30 @@ label.f{font-size:12.5px;color:var(--muted-foreground);display:flex;gap:6px;alig
 a.big{display:inline-block;margin-top:9px;padding:7px 14px;background:var(--hebi);
   color:#04241a;border-radius:var(--radius-md);text-decoration:none;font-size:13.5px;font-weight:650}
 .empty{color:var(--muted-foreground);padding:44px 0;text-align:center;font-size:13.5px}
-#thread{max-height:58vh;overflow:auto;padding:4px 2px 8px;margin-bottom:12px}
-.turn{display:flex;gap:11px;margin-bottom:18px;align-items:flex-start}
+.banner{border:1px solid color-mix(in srgb,var(--warn) 32%,transparent);
+  background:color-mix(in srgb,var(--warn) 8%,transparent);color:var(--warn);
+  border-radius:var(--radius);padding:9px 14px;margin-bottom:16px;font-size:13px;display:none;
+  animation:fadein .22s ease}
+
+/* ── 묻기: 화면 전체 ── */
+#thread{flex:1;min-height:0;overflow-y:auto;padding:4px 2px 10px}
+.turn{display:flex;gap:11px;margin-bottom:20px;align-items:flex-start;animation:fadein .22s ease}
 .turn.me{justify-content:flex-end}
 .turn .mark{width:26px;height:26px;flex:0 0 26px;border-radius:9999px;overflow:hidden;
-  background:var(--secondary);border:1px solid var(--border);display:grid;place-items:center;
-  font-size:11px;font-weight:700;color:var(--muted-foreground)}
+  background:var(--secondary);border:1px solid var(--border);display:grid;place-items:center}
 .turn .mark svg,.turn .mark img{width:100%;height:100%;object-fit:contain}
-.turn .body{min-width:0;font-size:13.5px;line-height:1.68;white-space:pre-wrap;word-break:break-word}
-.turn.me .body{max-width:76%;background:var(--secondary);color:var(--secondary-foreground);
-  border:1px solid var(--border);border-radius:var(--radius);padding:9px 13px}
+.turn .body{min-width:0;font-size:14px;line-height:1.72;white-space:pre-wrap;word-break:break-word}
+.turn.me .body{max-width:74%;background:var(--secondary);color:var(--secondary-foreground);
+  border:1px solid var(--border);border-radius:var(--radius);padding:9px 14px}
 .turn.hebi .body{flex:1;padding-top:2px}
 
 /* 컴포저 — orca 처럼 상자 하나 안에 에디터와 툴바가 같이 들어간다 */
 .composer{border:1px solid var(--input);border-radius:var(--radius);background:var(--card);
-  padding:10px 12px 8px;transition:border-color .12s,box-shadow .12s}
+  padding:11px 13px 9px;transition:border-color .14s ease,box-shadow .14s ease}
 .composer:focus-within{border-color:var(--hebi);
-  box-shadow:0 0 0 3px color-mix(in srgb,var(--hebi) 22%,transparent)}
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--hebi) 20%,transparent)}
 .composer textarea{width:100%;border:0;outline:0;background:transparent;color:inherit;
-  font:inherit;font-size:14px;line-height:1.6;resize:none;min-height:26px;max-height:190px;
+  font:inherit;font-size:14.5px;line-height:1.62;resize:none;min-height:26px;max-height:210px;
   padding:0;display:block}
 .composer textarea::placeholder{color:var(--muted-foreground)}
 .ctoolbar{display:flex;align-items:center;gap:7px;margin-top:9px;flex-wrap:wrap}
@@ -206,23 +258,18 @@ a.big{display:inline-block;margin-top:9px;padding:7px 14px;background:var(--hebi
 .sendbtn{width:32px;height:32px;flex:0 0 32px;padding:0;border-radius:9999px;
   display:grid;place-items:center;background:var(--primary);color:var(--primary-foreground)}
 .sendbtn svg{width:16px;height:16px}
-.sendbtn:disabled{opacity:.35}
 .quick{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
 
 #sum{border:1px solid var(--border);border-radius:var(--radius);background:var(--card);
      padding:16px 18px;margin-top:10px;display:none;white-space:pre-wrap;font-size:13.5px;
-     line-height:1.65;max-height:52vh;overflow:auto}
+     line-height:1.65;max-height:52vh;overflow:auto;animation:fadein .22s ease}
 #sum h4{font-size:12px;color:var(--muted-foreground);text-transform:uppercase;
         letter-spacing:.06em;margin:0 0 10px;display:flex;gap:8px;align-items:center;
         justify-content:space-between}
-#sum b{font-weight:700}
-.banner{border:1px solid color-mix(in srgb,var(--warn) 32%,transparent);
-  background:color-mix(in srgb,var(--warn) 8%,transparent);color:var(--warn);
-  border-radius:var(--radius);padding:9px 14px;margin-bottom:16px;font-size:13px;display:none}
 
-/* 채팅 */
+/* 대화 뷰어 */
 #stream{border:1px solid var(--border);border-radius:var(--radius);background:var(--card);
-  padding:4px 16px 16px;max-height:64vh;overflow:auto}
+  padding:4px 16px 16px;max-height:58vh;overflow:auto}
 .day{position:sticky;top:0;z-index:1;display:flex;align-items:center;gap:10px;
   background:var(--card);padding:12px 0 7px;font-size:11.5px;font-weight:600;
   color:var(--muted-foreground)}
@@ -264,22 +311,24 @@ td.n{text-align:right;font-variant-numeric:tabular-nums;font-size:13.5px}
   background:linear-gradient(90deg,var(--hebi),var(--hebi-deep));transition:width .5s ease}
 
 @media (max-width:760px){
-  .app{flex-direction:column}
-  .sidebar{width:100%;flex:none;height:auto;position:static;border-right:0;
+  html,body{overflow:auto}
+  .app{flex-direction:column;height:auto}
+  .sidebar{width:100%!important;flex:none!important;height:auto;border-right:0;
     border-bottom:1px solid var(--sidebar-border);padding:10px}
-  .brand{padding-bottom:10px}
-  .sidebar nav{display:flex;gap:4px;overflow-x:auto}
-  .navlink{margin-bottom:0;white-space:nowrap}
-  .hebi{margin-top:10px}
-  .main{padding:22px 18px 60px}
+  .toggle{display:none}
+  .navgroup .subnav{max-height:220px}
+  .main{padding:22px 18px 60px;height:auto;overflow:visible}
+  .main.full{overflow:visible;display:block}
+  #thread{max-height:54vh}
 }
 </style>
 
-<div class="app">
+<div class="app" id="app">
 <aside class="sidebar">
   <div class="brand">
     <div class="logo" id="logo">A</div>
-    <div><b>Abstraction</b><span>대화 수집 · 정리</span></div>
+    <div class="brandtext"><b>Abstraction</b><span>대화 수집 · 정리</span></div>
+    <button class="toggle" id="toggle" title="사이드바 접기"></button>
   </div>
   <nav id="nav"></nav>
   <div class="hebi">
@@ -290,10 +339,12 @@ td.n{text-align:right;font-variant-numeric:tabular-nums;font-size:13.5px}
     </div>
   </div>
 </aside>
-<main class="main">
-  <div class="head"><div><h1 id="ttl"></h1><p id="sub"></p></div><div id="headx"></div></div>
-  <div id="banner" class="banner"></div>
-  <div id="view"></div>
+<main class="main" id="main">
+  <div class="inner">
+    <div class="head"><h1 id="ttl"></h1><p id="sub"></p></div>
+    <div id="banner" class="banner"></div>
+    <div id="view"></div>
+  </div>
 </main>
 </div>
 
@@ -307,44 +358,56 @@ const ic = d => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stro
   'stroke-linecap="round" stroke-linejoin="round">'+d+'</svg>';
 const ICON = {
   chat: ic('<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'),
+  ask: ic('<path d="M12 17h.01"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><circle cx="12" cy="12" r="9.5"/>'),
+  board: ic('<path d="M12 20V10M18 20V4M6 20v-4"/>'),
+  manage: ic('<path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7.9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H2a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 3.7 7.9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H8a1.6 1.6 0 0 0 1-1.5V2a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V8a1.6 1.6 0 0 0 1.5 1H22a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/>'),
   collect: ic('<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/>'+
               '<path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>'),
+  digest: ic('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>'+
+             '<path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/>'),
   connect: ic('<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"/>'+
               '<path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"/>'),
-  board: ic('<path d="M12 20V10M18 20V4M6 20v-4"/>'),
-  ask: ic('<path d="M12 17h.01"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/>'+
-          '<circle cx="12" cy="12" r="9.5"/>'),
+  mcp: ic('<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/>'+
+          '<rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>'),
+  me: ic('<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>'),
+  gear: ic('<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3'+
+           'M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/>'),
+  chevron: ic('<path d="m15 18-6-6 6-6"/>'),
+  right: ic('<path d="m9 18 6-6-6-6"/>'),
+  arrow: ic('<path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>'),
 };
-// 서비스 아이콘. 서버가 파비콘을 받아 캐시해서 내려준다 (브라우저가 외부로 안 나감).
-// 못 받으면 글자 마크로 떨어진다.
-function svc(key, label){
-  const w = el('div','svc');
-  const i = el('img'); i.src = '/icon/' + encodeURIComponent(key); i.alt = '';
-  i.onerror = ()=>{ w.textContent = (label||key).slice(0,1).toUpperCase();
-                    w.classList.add('letter'); };
-  w.appendChild(i);
-  return w;
-}
-function lead(key, label, html){
-  const d = el('div','lead');
-  d.appendChild(svc(key, label));
-  d.appendChild(el('div', null, html));
-  return d;
-}
-
-const TABS = [
-  ['chat','대화', ICON.chat, '대화 보기', '수집된 채널의 대화를 날짜 범위로 보고 검색합니다.'],
-  ['ask','묻기', ICON.ask, '묻기', '고른 기간의 대화를 놓고 자유롭게 묻고 시킬 수 있습니다.'],
-  ['collect','수집', ICON.collect, '수집 관리', '어떤 채널을 모을지 정하고 과거 대화를 가져옵니다.'],
-  ['connect','연결', ICON.connect, '연결', '에이전트 계정과 MCP를 연결합니다. 본인 CLI로만 동작합니다.'],
-  ['board','리더보드', ICON.board, '리더보드', '수집된 채널 기준 발언 집계입니다.'],
+// 페이지 정의. group 이 있으면 사이드바에서 접히는 상위 탭 아래로 들어간다.
+const PAGES = {
+  chat:    {label:'대화', icon:ICON.chat, title:'대화 보기',
+            sub:'수집된 채널의 대화를 날짜 범위로 보고 검색합니다.'},
+  ask:     {label:'묻기', icon:ICON.ask, title:'묻기', full:1,
+            sub:'고른 기간의 대화를 놓고 자유롭게 묻고 시킵니다.'},
+  board:   {label:'리더보드', icon:ICON.board, title:'리더보드',
+            sub:'수집된 채널 기준 발언 집계입니다.'},
+  collect: {label:'수집 채널', icon:ICON.collect, title:'수집 채널', mgr:1,
+            sub:'어떤 채널을 모을지 정하고 과거 대화를 가져옵니다.'},
+  digest:  {label:'일일 결산', icon:ICON.digest, title:'일일 결산', mgr:1,
+            sub:'매일 정한 시각에 전날 대화를 정리해 올립니다.'},
+  connect: {label:'계정 연결', icon:ICON.connect, title:'계정 연결',
+            sub:'에이전트 CLI 와 디스코드를 연결합니다.'},
+  mcp:     {label:'MCP', icon:ICON.mcp, title:'MCP 연결',
+            sub:'내 에이전트에 붙일 MCP 서버를 관리합니다.'},
+  me:      {label:'내 설정', icon:ICON.me, title:'내 설정',
+            sub:'내 메시지를 수집에서 뺄지 정합니다.'},
+};
+// 사이드바 구조. 배열이면 접히는 상위 탭.
+const NAV = [
+  'chat', 'ask', 'board',
+  {id:'manage', label:'관리', icon:ICON.manage, mgr:1, items:['collect','digest']},
+  {id:'setup',  label:'설정', icon:ICON.gear, items:['connect','mcp','me']},
 ];
-let ME = {}, POLL = null, WATCH = null, REV = null, BUSY = 0;
+let ME = {}, POLL = null, WATCH = null, REV = null, BUSY = 0, TYPING = null;
 
 const today = () => new Date(Date.now()+9*3600e3).toISOString().slice(0,10);
 const ago = n => new Date(Date.now()+9*3600e3-n*86400e3).toISOString().slice(0,10);
 const pref = (k,v) => { try{ return v===undefined ? localStorage.getItem('ab.'+k)
-                                                   : localStorage.setItem('ab.'+k,v); }catch(e){} };
+                                                  : localStorage.setItem('ab.'+k,v); }catch(e){} };
+const slow = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 async function api(path, opts){
   const r = await fetch(path, opts);
@@ -356,8 +419,7 @@ const post = (p, body) => api(p, {method:'POST', headers:{'Content-Type':'applic
                                  body:JSON.stringify(body)});
 
 /* ---------------- Hebi ----------------
-   실존 버추얼 유튜버의 캐릭터 디자인을 쓰지 않는다. 이름(へび=뱀)만 빌린 오리지널이다.
-   data/mascot/{idle,working,happy,sleep}.png (또는 hebi.png) 를 넣으면 그걸 우선 쓴다. */
+   실존 버추얼 유튜버의 캐릭터 디자인을 쓰지 않는다. 이름(へび=뱀)만 빌린 오리지널이다. */
 function hebiSVG(state){
   const E = {
     idle:  '<circle cx="42" cy="41" r="4.6" fill="#101010"/><circle cx="43.7" cy="39.3" r="1.7" fill="#fff"/>'+
@@ -368,8 +430,8 @@ function hebiSVG(state){
     happy: '<path d="M37 43 q5 -7 10 0M53 43 q5 -7 10 0" stroke="#101010" stroke-width="2.6" '+
            'fill="none" stroke-linecap="round"/>',
     sleep: '<path d="M37 42 h10M53 42 h10" stroke="#101010" stroke-width="2.4" stroke-linecap="round"/>'+
-           '<text x="72" y="26" font-size="11" fill="var(--muted-foreground)" font-weight="700">z</text>'+
-           '<text x="80" y="17" font-size="8" fill="var(--muted-foreground)" font-weight="700">z</text>',
+           '<text x="72" y="26" font-size="11" fill="#888" font-weight="700">z</text>'+
+           '<text x="80" y="17" font-size="8" fill="#888" font-weight="700">z</text>',
   }[state] || '';
   const M = {
     idle:  '<path d="M46 51 q4 4 8 0" stroke="#101010" stroke-width="2" fill="none" stroke-linecap="round"/>',
@@ -390,8 +452,7 @@ function hebiSVG(state){
     '<ellipse cx="70" cy="48" rx="4.6" ry="2.9" fill="var(--hebi-blush)" opacity=".75"/>'+
     E + M +
     '<path d="M50 58 v6 M50 64 l-3.5 3.5 M50 64 l3.5 3.5" stroke="var(--hebi-blush)" '+
-      'stroke-width="1.8" fill="none" stroke-linecap="round"/>'+
-    '</svg>';
+      'stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>';
 }
 
 let hebiState = 'idle';
@@ -400,11 +461,11 @@ function hebi(state, line){
   const box = $('#hebi');
   box.className = 'hebiart ' + (hebiState==='working' ? 'spin' : 'bob');
   if((ME.mascot||[]).includes(hebiState))
-    box.innerHTML = '<img alt="Hebi" src="/mascot/'+hebiState+'?v='+encodeURIComponent(hebiState)+'">';
+    box.innerHTML = '<img alt="Hebi" src="/mascot/'+hebiState+'">';
   else box.innerHTML = hebiSVG(hebiState);
   if(line) $('#say').textContent = line;
 }
-function say(line, state){ hebi(state, line); }
+const say = (line, state) => hebi(state, line);
 
 function idleLine(){
   if(!ME.bot_ready) return '봇이 자는 중이야... start.bat 좀 눌러줘!';
@@ -413,19 +474,67 @@ function idleLine(){
   return '준비 완료! 뭐부터 볼까?';
 }
 
-/* ---------------- 부팅 · 실시간 ---------------- */
+/* ---------------- 사이드바 ---------------- */
+function allowed(key){ const p = PAGES[key]; return p && (!p.mgr || ME.is_manager); }
+
+function navlink(key, cur){
+  const p = PAGES[key];
+  const a = el('a','navlink'+(key===cur?' on':''), p.icon+'<span class="lbl">'+esc(p.label)+'</span>');
+  a.href = '#'+key; a.title = p.label;
+  return a;
+}
+
 function nav(){
-  const cur = (location.hash||'#chat').slice(1);
+  let cur = (location.hash||'#chat').slice(1);
+  if(!allowed(cur)) cur = 'chat';
   const box = $('#nav'); box.textContent='';
-  for(const [k,label,icon,title,sub] of TABS){
-    if(k==='collect' && !ME.is_manager) continue;
-    const a = el('a','navlink'+(k===cur?' on':''), icon+'<span>'+esc(label)+'</span>');
-    a.href='#'+k; box.appendChild(a);
-    if(k===cur){ $('#ttl').textContent=title; $('#sub').textContent=sub; }
+  for(const item of NAV){
+    if(typeof item === 'string'){
+      if(!allowed(item)) continue;
+      box.appendChild(navlink(item, cur));
+      continue;
+    }
+    const kids = item.items.filter(allowed);
+    if(!kids.length || (item.mgr && !ME.is_manager)) continue;
+    const holds = kids.includes(cur);
+    const open = holds || pref('open.'+item.id) === '1';
+    const g = el('div','navgroup'+(open?' open':''));
+    const head = el('button','navlink'+(holds?' on':''),
+      item.icon+'<span class="lbl">'+esc(item.label)+'</span>'+
+      '<span class="caret">'+ICON.right+'</span>');
+    head.title = item.label;
+    head.onclick = ()=>{
+      // 레일 모드에선 접을 자리가 없으니 첫 항목으로 바로 간다
+      if($('#app').classList.contains('rail')){ location.hash = '#'+kids[0]; return; }
+      const now = g.classList.toggle('open');
+      pref('open.'+item.id, now ? '1' : '');
+    };
+    g.appendChild(head);
+    const subnav = el('div','subnav');
+    for(const k of kids){
+      const p = PAGES[k];
+      const a = el('a', k===cur?'on':'', p.icon+'<span>'+esc(p.label)+'</span>');
+      a.href = '#'+k; subnav.appendChild(a);
+    }
+    g.appendChild(subnav);
+    box.appendChild(g);
   }
+  const p = PAGES[cur];
+  $('#ttl').textContent = p.title; $('#sub').textContent = p.sub;
+  $('#main').classList.toggle('full', !!p.full);
   return cur;
 }
 
+$('#toggle').innerHTML = ICON.chevron;
+$('#toggle').onclick = ()=>{
+  const on = $('#app').classList.toggle('rail');
+  pref('rail', on ? '1' : '');
+  $('#toggle').title = on ? '사이드바 펼치기' : '사이드바 접기';
+  nav();
+};
+if(pref('rail')) $('#app').classList.add('rail');
+
+/* ---------------- 부팅 · 실시간 ---------------- */
 async function boot(rerender){
   ME = await api('/api/me');
   REV = ME.rev;
@@ -454,7 +563,6 @@ async function boot(rerender){
   watch();
 }
 
-/* 서버 상태가 바뀌면 (연동·계정·채널·새 메시지·봇 기동) 알아서 다시 그린다 */
 async function tick(){
   // 답변을 기다리는 중이면 다시 그리지 않는다 — 그리면 진행 중인 요청이 날아간다
   if(BUSY) return;
@@ -464,17 +572,17 @@ async function tick(){
 function watch(){
   if(WATCH) return;
   WATCH = setInterval(()=>{ if(!document.hidden) tick(); }, 2500);
-  // 숨어 있는 동안은 쉬므로, 다시 보이면 기다리지 말고 바로 따라잡는다
   document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) tick(); });
 }
 
 function route(){
   clearInterval(POLL); POLL=null;
+  clearInterval(TYPING); TYPING=null;
   const cur = nav();
   pref('tab', cur);
-  $('#view').textContent=''; $('#headx').textContent='';
-  ({chat:viewChat, ask:viewAsk, collect:viewCollect,
-    connect:viewConnect, board:viewBoard}[cur] || viewChat)();
+  $('#view').textContent='';
+  ({chat:viewChat, ask:viewAsk, collect:viewCollect, digest:viewDigest,
+    connect:viewConnect, mcp:viewMcp, me:viewMe, board:viewBoard}[cur] || viewChat)();
 }
 window.addEventListener('hashchange', route);
 
@@ -490,8 +598,14 @@ function skeleton(box, n){
   }
 }
 const busyBox = (t) => el('div','busy','<span class="spin"></span>'+esc(t));
+function spinning(btn){
+  if(!btn) return ()=>{};
+  const old = btn.innerHTML;
+  btn.disabled = true; btn.textContent=''; btn.appendChild(el('span','spin'));
+  return ()=>{ btn.disabled=false; btn.innerHTML=old; };
+}
 
-/* ---------------- 대화 ---------------- */
+/* ---------------- 대화 보기 ---------------- */
 async function viewChat(){
   const v = $('#view');
   const bar = el('div','card');
@@ -519,6 +633,25 @@ async function viewChat(){
   const stream = el('div', null); stream.id='stream'; v.appendChild(stream);
   stream.appendChild(busyBox('대화를 불러오는 중...'));
 
+  const chans = await api('/api/channels');
+  const sel = $('#ch');
+  if(!chans.length){
+    sel.appendChild(el('option', null, '수집 중인 채널 없음'));
+    stream.innerHTML = '<div class="empty">수집 중인 채널이 없습니다.'+
+      (ME.is_manager?'<br><b>관리 › 수집 채널</b> 에서 켜세요.':'<br>서버 관리자에게 요청하세요.')+'</div>';
+    return;
+  }
+  for(const c of chans){
+    const o = el('option', null, '#'+esc(c.channel_name)+' · '+c.message_count);
+    o.value = c.channel_id; sel.appendChild(o);
+  }
+  sel.value = pref('ch') || chans[0].channel_id;
+  if(!sel.value) sel.value = chans[0].channel_id;
+  $('#d1').value = pref('d1') || ago(6); $('#d2').value = pref('d2') || '';
+  go.onclick = load; sel.onchange = load;
+  $('#q').addEventListener('keydown', e => { if(e.key==='Enter') load(); });
+  load();
+
   sm.onclick = async ()=>{
     const ch = sel.value;
     const d1 = $('#d1').value || today(), d2 = $('#d2').value || today();
@@ -542,7 +675,7 @@ async function viewChat(){
       }
       const head = el('h4');
       head.appendChild(el('span', null, '정리 · '+esc(r.span)+' · '+r.count+'건'+
-        (j.llm ? ' · '+esc(j.model) : ' · 통계만 (요약 키 없음)')));
+        (j.llm ? ' · '+esc(j.model) : ' · 통계만')));
       const cp = el('button','ghost'); cp.textContent='복사';
       cp.style.padding='4px 10px'; cp.style.fontSize='12px';
       cp.onclick = ()=>{ navigator.clipboard.writeText(j.text);
@@ -554,26 +687,6 @@ async function viewChat(){
     }, 900);
   };
 
-  const chans = await api('/api/channels');
-  const sel = $('#ch');
-  if(!chans.length){
-    sel.appendChild(el('option', null, '수집 중인 채널 없음'));
-    stream.innerHTML = '<div class="empty">수집 중인 채널이 없습니다.'+
-      (ME.is_manager?'<br><b>수집</b> 탭에서 채널을 켜세요.':'<br>서버 관리자에게 요청하세요.')+'</div>';
-    say('모을 채널이 아직 없어. 수집부터 켜자!','idle');
-    return;
-  }
-  for(const c of chans){
-    const o = el('option', null, '#'+esc(c.channel_name)+' · '+c.message_count);
-    o.value = c.channel_id; sel.appendChild(o);
-  }
-  sel.value = pref('ch') || chans[0].channel_id;
-  if(!sel.value) sel.value = chans[0].channel_id;
-  $('#d1').value = pref('d1') || ago(6); $('#d2').value = pref('d2') || '';
-  go.onclick = load; sel.onchange = load;
-  $('#q').addEventListener('keydown', e => { if(e.key==='Enter') load(); });
-  load();
-
   async function load(){
     // 끝 날짜를 비우면 '오늘까지' 로 읽는다 (두 칸이 범위로 보이므로)
     const q = $('#q').value.trim(), ch = sel.value;
@@ -584,10 +697,7 @@ async function viewChat(){
       ? await api('/api/search?'+new URLSearchParams({q, channel:ch, since:d1, until:d2}))
       : await api('/api/conversation?'+new URLSearchParams({channel:ch, date:d1, until:d2}));
     if(r.error){ stream.innerHTML='<div class="empty">'+esc(r.error)+'</div>'; return; }
-    const n = (r.messages||[]).length;
     render(stream, r.messages||[], q);
-    say(n ? n+'건 찾았어!' : '이 조건엔 아무것도 없네...', n?'happy':'idle');
-    setTimeout(()=>{ if(!BUSY) hebi('idle'); }, 2600);
   }
 }
 
@@ -623,7 +733,6 @@ function render(box, msgs, q){
 }
 
 /* ---------------- 묻기 ---------------- */
-// 탭을 옮기거나 새로고침해도 이어지도록 브라우저에 남긴다
 let ASKLOG = (()=>{ try { return JSON.parse(pref('asklog') || '[]'); }
                     catch(e){ return []; } })();
 function saveAsk(){ try { pref('asklog', JSON.stringify(ASKLOG.slice(-40))); } catch(e){} }
@@ -637,20 +746,18 @@ async function viewAsk(){
   const ta = el('textarea'); ta.rows = 1;
   ta.placeholder = '무엇이든 물어보세요';
   const tools = el('div','ctoolbar');
-  const sel = el('select'); sel.id='ach';
-  const a1 = el('input'); a1.type='date'; a1.id='a1';
-  const a2 = el('input'); a2.type='date'; a2.id='a2';
-  const note = el('span','hint'); note.id='anote';
-  const grow = el('div','grow');
+  const sel = el('select');
+  const a1 = el('input'); a1.type='date';
+  const a2 = el('input'); a2.type='date';
+  const note = el('span','hint');
   const clr = el('button','ghost'); clr.textContent='지우기';
   clr.style.padding='4px 10px'; clr.style.fontSize='12px';
-  const send = el('button','sendbtn');
-  send.title = 'Enter 로 보내기';
-  send.innerHTML = ic('<path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>');
-  tools.append(sel, a1, el('span','hint','~'), a2, note, grow, clr, send);
+  const send = el('button','sendbtn'); send.title='Enter 로 보내기';
+  send.innerHTML = ICON.arrow;
+  tools.append(sel, a1, el('span','hint','~'), a2, note, el('div','grow'), clr, send);
   comp.append(ta, tools); v.appendChild(comp);
 
-  const grows = ()=>{ ta.style.height='auto'; ta.style.height = ta.scrollHeight + 'px'; };
+  const grows = ()=>{ ta.style.height='auto'; ta.style.height = ta.scrollHeight+'px'; };
   ta.addEventListener('input', grows);
 
   const QUICK = [
@@ -669,7 +776,7 @@ async function viewAsk(){
   const chans = await api('/api/channels');
   if(!chans.length){
     thread.innerHTML = '<div class="empty">수집 중인 채널이 없습니다.</div>';
-    ta.disabled = send.disabled = true; quick.textContent = '';
+    ta.disabled = send.disabled = true; quick.textContent='';
     return;
   }
   for(const c of chans){
@@ -689,10 +796,9 @@ async function viewAsk(){
   });
   send.onclick = go;
 
-  function mark(role){
+  function mark(){
     const m = el('div','mark');
-    if(role === 'user') m.textContent = '나';
-    else if((ME.mascot||[]).includes('idle')) m.innerHTML = '<img alt="" src="/mascot/idle">';
+    if((ME.mascot||[]).includes('idle')) m.innerHTML = '<img alt="" src="/mascot/idle">';
     else m.innerHTML = hebiSVG('idle');
     return m;
   }
@@ -706,20 +812,37 @@ async function viewAsk(){
     }
     for(const m of ASKLOG){
       const t = el('div','turn'+(m.role==='user'?' me':' hebi'));
-      if(m.role !== 'user') t.appendChild(mark('hebi'));
+      if(m.role !== 'user') t.appendChild(mark());
       t.appendChild(el('div','body', esc(m.content)));
       thread.appendChild(t);
     }
     thread.scrollTop = thread.scrollHeight;
   }
 
-  function pending(text){
+  function thinking(label){
     const t = el('div','turn hebi');
-    t.appendChild(mark('hebi'));
+    t.appendChild(mark());
     const b = el('div','body');
-    b.innerHTML = '<span class="spin"></span> ' + esc(text);
+    b.innerHTML = '<span style="color:var(--muted-foreground)">'+esc(label)+
+      '</span> <span class="think"><i></i><i></i><i></i></span>';
     t.appendChild(b); thread.appendChild(t); thread.scrollTop = thread.scrollHeight;
     return t;
+  }
+
+  // 답변을 한 번에 붙이지 않고 흘려 보여준다. 긴 답은 더 빨리 흐른다.
+  function typeOut(node, text, done){
+    if(slow()){ node.textContent = text; done && done(); return; }
+    const step = Math.max(1, Math.round(text.length / 220));
+    const caret = el('span','caret2');
+    let i = 0;
+    clearInterval(TYPING);
+    TYPING = setInterval(()=>{
+      i = Math.min(text.length, i + step);
+      node.textContent = text.slice(0, i);
+      node.appendChild(caret);
+      thread.scrollTop = thread.scrollHeight;
+      if(i >= text.length){ clearInterval(TYPING); TYPING=null; caret.remove(); done && done(); }
+    }, 16);
   }
 
   async function go(){
@@ -730,37 +853,35 @@ async function viewAsk(){
     ta.value=''; grows(); draw();
     send.disabled = ta.disabled = true;
     BUSY++; say('읽는 중...','working');
-    const wait = pending('대화를 읽는 중...');
+    const wait = thinking('대화를 읽는 중');
     const d1 = a1.value || today(), d2 = a2.value || today();
-    const r = await post('/api/chat', {channel: sel.value, date: d1, until: d2,
-                                       messages: ASKLOG});
+    const r = await post('/api/chat', {channel: sel.value, date: d1, until: d2, messages: ASKLOG});
     const done = ()=>{ send.disabled = ta.disabled = false; ta.focus(); BUSY--; };
     if(!r.ok){
       wait.remove(); ASKLOG.push({role:'assistant', content: r.error || '실패했습니다.'});
       saveAsk(); draw(); done(); say('그건 못 하겠어...','idle'); return;
     }
     note.textContent = r.span + ' · ' + r.count + '건';
-    wait.querySelector('.body').innerHTML = '<span class="spin"></span> 생각하는 중...';
+    wait.querySelector('.body').innerHTML =
+      '<span style="color:var(--muted-foreground)">생각하는 중</span> '+
+      '<span class="think"><i></i><i></i><i></i></span>';
     clearInterval(POLL);
     POLL = setInterval(async ()=>{
       const j = await api('/api/job/'+r.id);
       if(!j.done) return;
-      clearInterval(POLL); POLL=null; wait.remove();
-      ASKLOG.push({role:'assistant',
-                   content: j.ok ? j.text : ((j.lines||['답을 못 받았습니다.']).join(' '))});
-      saveAsk(); draw(); done();
-      say(j.ok?'답했어!':'잘 안 됐어...', j.ok?'happy':'idle');
+      clearInterval(POLL); POLL=null;
+      const text = j.ok ? j.text : ((j.lines||['답을 못 받았습니다.']).join(' '));
+      ASKLOG.push({role:'assistant', content:text}); saveAsk();
+      const body = wait.querySelector('.body');
+      body.textContent = '';
+      typeOut(body, text, ()=>{ done(); say(j.ok?'답했어!':'잘 안 됐어...', j.ok?'happy':'idle'); });
     }, 900);
   }
 }
 
-/* ---------------- 수집 ---------------- */
+/* ---------------- 수집 채널 ---------------- */
 async function viewCollect(){
   const v = $('#view');
-  if(!ME.is_manager){
-    v.innerHTML='<div class="empty">서버 관리 권한이 필요합니다.<br>디스코드에서 <b>/시작</b> 을 다시 실행해 권한을 갱신하세요.</div>';
-    return;
-  }
   v.appendChild(el('h2', null, '채널'));
   const list = el('div', null); v.appendChild(list); skeleton(list, 3);
 
@@ -776,122 +897,95 @@ async function viewCollect(){
   bf.appendChild(run); v.appendChild(bf);
   const blog = el('div','log'); v.appendChild(blog);
 
-  v.appendChild(el('h2', null, '일일 결산'));
-  const dg = el('div', null); v.appendChild(dg);
-  const dlog = el('div','log'); v.appendChild(dlog);
-
-  v.appendChild(el('h2', null, '내 수집 설정'));
-  const oo = el('div','card'); v.appendChild(oo);
-
   const chans = await api('/api/guild-channels');
   list.textContent='';
-  if(chans.error){
-    list.innerHTML='<div class="empty">'+esc(chans.error)+'</div>';
-  } else {
-    for(const c of chans){
-      const card = el('div','card');
-      card.appendChild(el('div', null,
-        '<div class="who">#'+esc(c.name)+
-        (c.collected?' <span class="badge g">수집 중</span>':'')+'</div>'+
-        '<div class="meta">'+esc(c.guild)+
-        (c.readable?'':' · <span class="warn">읽기 권한 없음</span>')+'</div>'));
-      const b = el('button', c.collected?'danger':'ghost');
-      b.textContent = c.collected?'중지':'수집 시작';
-      b.disabled = !c.readable && !c.collected;
-      b.onclick = async ()=>{
-        b.disabled=true; b.textContent=''; b.appendChild(el('span','spin'));
-        BUSY++; say(c.collected?'끄는 중...':'#'+c.name+' 켜는 중...','working');
-        const r = await post('/api/collect', {channel_id:c.id, on:!c.collected, notice:true});
-        BUSY--;
-        if(!r.ok){ alert(r.error||'실패'); say('실패했어...','idle'); }
-        else say(c.collected?'껐어!':'이제 #'+c.name+' 모을게!','happy');
-        viewCollect();
-      };
-      card.appendChild(b); list.appendChild(card);
-      if(c.collected){ const o = el('option', null, '#'+esc(c.name)); o.value=c.id;
-        $('#bch').appendChild(o); }
-    }
-    if(!$('#bch').options.length)
-      $('#bch').appendChild(el('option', null, '수집 중인 채널 없음'));
+  if(chans.error){ list.innerHTML='<div class="empty">'+esc(chans.error)+'</div>'; return; }
+  for(const c of chans){
+    const card = el('div','card');
+    card.appendChild(el('div', null,
+      '<div class="who">#'+esc(c.name)+
+      (c.collected?' <span class="badge g">수집 중</span>':'')+'</div>'+
+      '<div class="meta">'+esc(c.guild)+
+      (c.readable?'':' · <span class="warn">읽기 권한 없음</span>')+'</div>'));
+    const b = el('button', c.collected?'danger':'ghost');
+    b.textContent = c.collected?'중지':'수집 시작';
+    b.disabled = !c.readable && !c.collected;
+    b.onclick = async ()=>{
+      const stop = spinning(b); BUSY++; say(c.collected?'끄는 중...':'#'+c.name+' 켜는 중...','working');
+      const r = await post('/api/collect', {channel_id:c.id, on:!c.collected, notice:true});
+      BUSY--; stop();
+      if(!r.ok){ alert(r.error||'실패'); say('실패했어...','idle'); }
+      else say(c.collected?'껐어!':'이제 #'+c.name+' 모을게!','happy');
+      viewCollect();
+    };
+    card.appendChild(b); list.appendChild(card);
+    if(c.collected){ const o = el('option', null, '#'+esc(c.name)); o.value=c.id;
+      $('#bch').appendChild(o); }
   }
+  if(!$('#bch').options.length) $('#bch').appendChild(el('option', null, '수집 중인 채널 없음'));
 
   run.onclick = async ()=>{
     blog.style.display='block';
     blog.innerHTML = '시작하는 중...<div class="prog"><i></i></div>';
-    run.disabled=true; BUSY++; say('과거 대화 긁어오는 중... 좀 걸려!','working');
+    const stop = spinning(run); BUSY++; say('과거 대화 긁어오는 중... 좀 걸려!','working');
     const body = {channel_id:$('#bch').value};
     if($('#bs').value){ body.since=$('#bs').value; body.until=$('#be').value; }
     else body.days = Number($('#bd').value)||90;
     const r = await post('/api/backfill', body);
-    if(!r.ok){ blog.textContent = r.error||'실패'; run.disabled=false; BUSY--;
-      say('못 가져왔어...','idle'); return; }
+    if(!r.ok){ blog.textContent = r.error||'실패'; stop(); BUSY--; say('못 가져왔어...','idle'); return; }
     POLL = setInterval(async ()=>{
       const j = await api('/api/job/'+r.id);
       blog.innerHTML = esc((j.span||'')+' — '+(j.count||0)+'건 적재'+(j.done?' · 완료':''))+
         (j.done?'':'<div class="prog"><i></i></div>')+
-        (j.lines && j.lines.length ? '<br>'+esc(j.lines.join('\n')) : '');
-      if(j.done){ clearInterval(POLL); POLL=null; run.disabled=false; BUSY--;
+        (j.lines && j.lines.length ? '<br>'+esc(j.lines.join(' ')) : '');
+      if(j.done){ clearInterval(POLL); POLL=null; stop(); BUSY--;
         say((j.count||0)+'건 가져왔어!','happy'); }
     }, 700);
   };
+}
 
-  // 결산
+/* ---------------- 일일 결산 ---------------- */
+async function viewDigest(){
+  const v = $('#view');
+  const box = el('div', null); v.appendChild(box); skeleton(box, 2);
+  const dlog = el('div','log'); v.appendChild(dlog);
+
   const d = await api('/api/digest');
-  dg.textContent='';
+  box.textContent='';
+  if(!d.ok){ box.innerHTML = '<div class="empty">'+esc(d.error||'불러오지 못했습니다.')+'</div>'; return; }
+
   const set = el('div','card');
   set.innerHTML = '<div><div class="who">결산 채널 '+
     (d.channel_name ? '<span class="badge g">#'+esc(d.channel_name)+'</span>'
                     : '<span class="badge y">미설정</span>')+'</div>'+
     '<div class="meta">'+(d.channel_name
-      ? '매일 '+d.hour+'시(KST)에 전날 대화를 정리해 올립니다'+
-        (d.last ? ' · 마지막 '+esc(d.last) : '')
-      : '버튼을 누르면 #일일결산 채널을 만들고(권한 없으면 안내) 자동 게시를 켭니다')+
-    '</div></div>';
+      ? '매일 '+d.hour+'시(KST)에 전날 대화를 정리해 올립니다'+(d.last?' · 마지막 '+esc(d.last):'')
+      : '버튼을 누르면 #일일결산 채널을 만들고 자동 게시를 켭니다')+'</div></div>';
   const hr = el('input'); hr.type='number'; hr.min=0; hr.max=23; hr.style.width='68px';
   hr.value = d.hour ?? 9;
   const ms = el('select');
   for(const m of (d.models||[])){
-    const o = el('option', null, esc(m.label)+(m.month!=='—' ? ' · '+esc(m.month) : ''));
-    o.value = m.id; o.title = m.note; if(m.id===d.model) o.selected = true;
+    const o = el('option', null, esc(m.label)); o.value=m.id; o.title=m.note;
+    if(m.id===d.model) o.selected = true;
     ms.appendChild(o);
   }
   const sb = el('button', d.channel_name?'ghost':''); sb.textContent = d.channel_name?'저장':'결산 켜기';
   sb.onclick = async ()=>{
     const stop = spinning(sb); BUSY++; say('결산 채널 준비 중...','working');
-    const r = await post('/api/digest', {hour: Number(hr.value)||9, model: ms.value});
+    const r = await post('/api/digest', {hour:Number(hr.value)||9, model:ms.value});
     BUSY--; stop();
     if(!r.ok){ dlog.style.display='block'; dlog.textContent=r.error||'실패'; say('안 됐어...','idle'); }
     else say('#'+r.name+' 에 매일 올릴게!','happy');
-    viewCollect();
+    viewDigest();
   };
-  const row = el('div','row');
-  row.append(el('span','meta','매일'), hr, el('span','meta','시'), ms, sb);
-  set.appendChild(row); dg.appendChild(set);
+  const row = el('div','row'); row.append(el('span','meta','매일'), hr, el('span','meta','시'), ms, sb);
+  set.appendChild(row); box.appendChild(set);
 
-  // 보존 기간 — 용량이 아니라 프라이버시. 결산은 디스코드에 남으므로 원문만 사라진다
-  const rt = el('div','card');
-  rt.innerHTML = '<div><div class="who">원문 보존 기간</div><div class="meta">'+
-    '지난 대화 원문을 며칠 뒤 지울지. <b>0 이면 안 지웁니다.</b> '+
-    '결산은 디스코드에 남으니 정리본은 그대로입니다</div></div>';
-  const rd = el('input'); rd.type='number'; rd.min=0; rd.max=3650; rd.style.width='84px';
-  rd.value = d.retention_days ?? 90;
-  const rb2 = el('button','ghost'); rb2.textContent='저장';
-  rb2.onclick = async ()=>{
-    const stop = spinning(rb2); BUSY++;
-    const r = await post('/api/digest', {hour: Number(hr.value)||9, model: ms.value,
-                                         retention_days: Number(rd.value)});
-    BUSY--; stop();
-    if(!r.ok){ dlog.style.display='block'; dlog.textContent=r.error||'실패'; }
-    else say(Number(rd.value)===0?'원문을 계속 보관할게':'원문은 '+rd.value+'일 뒤 지울게','happy');
-    viewCollect();
-  };
-  const rr = el('div','row'); rr.append(rd, el('span','meta','일'), rb2);
-  rt.appendChild(rr); dg.appendChild(rt);
-  if(d.models && !d.has_key){
+  if(!d.has_key){
     const cur = (d.models||[]).find(m=>m.id===d.model) || {};
-    dg.appendChild(el('div','card','<div><div class="who">'+
+    box.appendChild(el('div','card','<div><div class="who">'+
       '<span class="badge y">연동된 CLI 없음</span></div><div class="meta">'+
-      esc(cur.label||d.model)+' 로 정리하려면 <b>연결</b> 탭에서 '+
+      esc(cur.label||d.model)+' 로 정리하려면 <b>설정 › 계정 연결</b> 에서 '+
       (d.provider==='openai'?'Codex':'Claude')+
       ' 계정을 붙이세요. 없으면 통계 결산만 올라갑니다.</div></div>'));
   }
@@ -909,32 +1003,50 @@ async function viewCollect(){
       if(!r.ok){ dlog.textContent=r.error||'실패'; stop(); BUSY--; say('실패했어...','idle'); return; }
       POLL = setInterval(async ()=>{
         const j = await api('/api/job/'+r.id);
-        dlog.textContent = (j.lines||[]).join("\n");
+        dlog.textContent = (j.lines||[]).join(' ');
         if(j.done){ clearInterval(POLL); POLL=null; stop(); BUSY--;
           say(j.ok?'결산 올렸어!':'실패했어...', j.ok?'happy':'idle'); }
       }, 900);
     };
     const r2 = el('div','row'); r2.append(dt, rb);
-    now.appendChild(r2); dg.appendChild(now);
+    now.appendChild(r2); box.appendChild(now);
   }
 
-  const st = await api('/api/optout');
-  oo.textContent='';
-  if(!st.ok){ oo.appendChild(el('div', null, '<div class="meta">'+esc(st.error)+'</div>')); }
-  else {
-    oo.appendChild(el('div', null, '<div class="who">내 메시지 수집 '+
-      (st.opted_out?'<span class="badge y">제외 중</span>':'<span class="badge g">수집 중</span>')+
-      '</div><div class="meta">'+(st.opted_out?'저장된 것도 조회에서 빠집니다'
-        :'내 메시지가 요약과 아이디어 정리에 사용됩니다')+'</div>'));
-    const b = el('button', st.opted_out?'ghost':'danger');
-    b.textContent = st.opted_out?'수집 재개':'수집 중단';
-    b.onclick = async ()=>{ const r = await post('/api/optout', {out: !st.opted_out});
-      if(r.message) alert(r.message); viewCollect(); };
-    oo.appendChild(b);
-  }
+  box.appendChild(el('h2', null, '원문 보존'));
+  const rt = el('div','card');
+  rt.innerHTML = '<div><div class="who">보존 기간</div><div class="meta">'+
+    '지난 대화 원문을 며칠 뒤 지울지. <b>0 이면 안 지웁니다.</b> '+
+    '결산은 디스코드에 남으니 정리본은 그대로입니다</div></div>';
+  const rd = el('input'); rd.type='number'; rd.min=0; rd.max=3650; rd.style.width='84px';
+  rd.value = d.retention_days ?? 90;
+  const rb2 = el('button','ghost'); rb2.textContent='저장';
+  rb2.onclick = async ()=>{
+    const stop = spinning(rb2); BUSY++;
+    const r = await post('/api/digest', {hour:Number(hr.value)||9, model:ms.value,
+                                         retention_days:Number(rd.value)});
+    BUSY--; stop();
+    if(!r.ok){ dlog.style.display='block'; dlog.textContent=r.error||'실패'; }
+    else say(Number(rd.value)===0?'원문을 계속 보관할게':'원문은 '+rd.value+'일 뒤 지울게','happy');
+    viewDigest();
+  };
+  const rr = el('div','row'); rr.append(rd, el('span','meta','일'), rb2);
+  rt.appendChild(rr); box.appendChild(rt);
 }
 
-/* ---------------- 연결 ---------------- */
+/* ---------------- 계정 연결 ---------------- */
+function svc(key, label){
+  const w = el('div','svc');
+  const i = el('img'); i.src = '/icon/'+encodeURIComponent(key); i.alt = '';
+  i.onerror = ()=>{ w.textContent = (label||key).slice(0,1).toUpperCase(); w.classList.add('letter'); };
+  w.appendChild(i);
+  return w;
+}
+function lead(key, label, html){
+  const d = el('div','lead');
+  d.appendChild(svc(key, label)); d.appendChild(el('div', null, html));
+  return d;
+}
+
 async function viewConnect(){
   const v = $('#view');
   v.appendChild(el('h2', null, '에이전트 계정'));
@@ -945,31 +1057,19 @@ async function viewConnect(){
   const pair = el('div','card');
   pair.innerHTML = '<div><div class="who">연동 코드</div>'+
     '<div class="meta">디스코드에서 <b>/시작</b> — 링크로 들어오면 자동으로 채워집니다</div></div>';
-  const pin = el('input'); pin.type='text'; pin.id='code'; pin.placeholder='ABC123';
+  const pin = el('input'); pin.type='text'; pin.placeholder='ABC123';
   pin.maxLength=6; pin.autocomplete='off'; pin.style.width='110px';
   const pb = el('button', null); pb.textContent='연동';
   pair.appendChild(el('div','row')).append(pin, pb);
   v.appendChild(pair);
   const pmsg = el('div','meta'); v.appendChild(pmsg);
-
-  v.appendChild(el('h2', null, 'MCP'));
-  v.appendChild(el('div','meta','기본 제공 항목은 주소를 입력할 필요가 없습니다. 인증이 필요하면 창이 열립니다.'));
-  const mcpBox = el('div', null); mcpBox.style.marginTop='9px'; v.appendChild(mcpBox);
-
-  v.appendChild(el('h2', null, '온디맨드 — 목록에 없는 MCP'));
-  const od = el('div','card');
-  od.innerHTML = '<div class="row" style="flex:1">'+
-    '<input type="text" id="mn" placeholder="이름 (예: my-server)" style="width:165px">'+
-    '<input type="text" id="mu" placeholder="http://127.0.0.1:3845/mcp 또는 https://..." style="flex:1;min-width:200px">'+
-    '</div>';
-  const ob = el('button','ghost'); ob.textContent='추가'; od.appendChild(ob); v.appendChild(od);
   const log = el('div','log'); v.appendChild(log);
 
   const accts = await api('/api/accounts');
   accBox.textContent='';
   if(!accts.length) accBox.appendChild(el('div','card','<div class="meta">등록된 계정이 없습니다. 아래에서 연결하세요.</div>'));
   for(const a of accts){
-    const card = el('div','card new');
+    const card = el('div','card');
     card.appendChild(lead(a.agent, AG[a.agent]||a.agent,
       '<div class="who">'+esc(a.identity)+' '+
       (a.linked?'<span class="badge g">연동됨</span>':'<span class="badge y">미연동</span>')+'</div>'+
@@ -986,7 +1086,7 @@ async function viewConnect(){
       '<div class="meta">로그인 창이 열립니다'+
       (k==='claude'?' · 연결되면 이 프로젝트 MCP가 자동으로 붙습니다':'')+'</div>'));
     const b = el('button', null); b.textContent='연결';
-    b.onclick = ()=>login(k, log, b);       // 팝업은 클릭 안에서 열어야 차단되지 않는다
+    b.onclick = ()=>login(k, log, b);   // 팝업은 클릭 안에서 열어야 차단되지 않는다
     card.appendChild(b); addBox.appendChild(card);
   }
 
@@ -1003,49 +1103,11 @@ async function viewConnect(){
     say(r.ok ? esc(r.user_name)+' 님, 반가워!' : '코드가 안 맞아...', r.ok?'happy':'idle');
     if(r.ok){ pin.value=''; boot(); }
   };
-
-  // 카탈로그는 즉시 그리고, 연결 상태는 CLI 응답이 오면 채운다 (몇 초 걸릴 수 있음)
-  mcpBox.appendChild(busyBox('연결 상태 확인 중...'));
-  const r = await api('/api/mcp');
-  const have = new Set(r.servers||[]);
-  mcpBox.textContent='';
-  const items = [[SELFMCP.name, SELFMCP.label, SELFMCP.desc, true],
-    ...Object.entries(CATALOG).map(([k,v])=>[k, v.label, v.desc, false])];
-  for(const [key,label,desc,isSelf] of items){
-    const on = have.has(key);
-    const card = el('div','card');
-    card.appendChild(lead(key, label, '<div class="who">'+esc(label)+
-      (on?' <span class="badge g">연결됨</span>':'')+'</div><div class="meta">'+esc(desc)+
-      (isSelf?' · 자동':'')+'</div>'));
-    const b = el('button','ghost'); b.textContent = on?'해제':'연결';
-    b.onclick = ()=> on ? mcpDo('/api/mcp/remove', {name:key}, log, b)
-                        : mcpDo('/api/mcp/add', {key}, log, b);
-    card.appendChild(b); mcpBox.appendChild(card);
-  }
-  for(const name of (r.servers||[]))
-    if(!CATALOG[name] && name!==SELFMCP.name){
-      const card = el('div','card');
-      card.appendChild(lead(name, name, '<div class="who">'+esc(name)+
-        ' <span class="badge g">연결됨</span></div><div class="meta">직접 추가함</div>'));
-      const b = el('button','ghost'); b.textContent='해제';
-      b.onclick = ()=> mcpDo('/api/mcp/remove', {name}, log, b);
-      card.appendChild(b); mcpBox.appendChild(card);
-    }
-  if(r.note) mcpBox.appendChild(el('div','meta', esc(r.note)));
-
-  ob.onclick = (e)=> mcpDo('/api/mcp/add', {name:$('#mn').value, url:$('#mu').value}, log, ob);
-}
-
-function spinning(btn){
-  if(!btn) return ()=>{};
-  const old = btn.textContent;
-  btn.disabled = true; btn.textContent=''; btn.appendChild(el('span','spin'));
-  return ()=>{ btn.disabled=false; btn.textContent=old; };
 }
 
 async function login(agent, log, btn){
   // 클릭 제스처 안에서 빈 창을 먼저 연다. URL 은 나중에 채운다 (팝업 차단 회피)
-  const w = window.open('', 'hebi-login', 'width=560,height=760,noopener=no');
+  const w = window.open('', 'hebi-login', 'width=560,height=760');
   if(w) w.document.write('<title>로그인</title><body style="font:15px system-ui;padding:40px;'+
     'text-align:center;color:#666">로그인 페이지를 여는 중...</body>');
   const stop = spinning(btn);
@@ -1073,6 +1135,51 @@ async function login(agent, log, btn){
   }, 700);
 }
 
+/* ---------------- MCP ---------------- */
+async function viewMcp(){
+  const v = $('#view');
+  v.appendChild(el('div','meta','기본 제공 항목은 주소를 입력할 필요가 없습니다. 인증이 필요하면 창이 열립니다.'));
+  const box = el('div', null); box.style.marginTop='10px'; v.appendChild(box);
+
+  v.appendChild(el('h2', null, '온디맨드 — 목록에 없는 MCP'));
+  const od = el('div','card');
+  od.innerHTML = '<div class="row" style="flex:1">'+
+    '<input type="text" id="mn" placeholder="이름 (예: my-server)" style="width:165px">'+
+    '<input type="text" id="mu" placeholder="http://127.0.0.1:3845/mcp 또는 https://..." style="flex:1;min-width:200px">'+
+    '</div>';
+  const ob = el('button','ghost'); ob.textContent='추가'; od.appendChild(ob); v.appendChild(od);
+  const log = el('div','log'); v.appendChild(log);
+  ob.onclick = ()=> mcpDo('/api/mcp/add', {name:$('#mn').value, url:$('#mu').value}, log, ob);
+
+  box.appendChild(busyBox('연결 상태 확인 중...'));
+  const r = await api('/api/mcp');
+  const have = new Set(r.servers||[]);
+  box.textContent='';
+  const items = [[SELFMCP.name, SELFMCP.label, SELFMCP.desc, true],
+    ...Object.entries(CATALOG).map(([k,v2])=>[k, v2.label, v2.desc, false])];
+  for(const [key,label,desc,isSelf] of items){
+    const on = have.has(key);
+    const card = el('div','card');
+    card.appendChild(lead(key, label, '<div class="who">'+esc(label)+
+      (on?' <span class="badge g">연결됨</span>':'')+'</div><div class="meta">'+esc(desc)+
+      (isSelf?' · 자동':'')+'</div>'));
+    const b = el('button','ghost'); b.textContent = on?'해제':'연결';
+    b.onclick = ()=> on ? mcpDo('/api/mcp/remove', {name:key}, log, b)
+                        : mcpDo('/api/mcp/add', {key}, log, b);
+    card.appendChild(b); box.appendChild(card);
+  }
+  for(const name of (r.servers||[]))
+    if(!CATALOG[name] && name!==SELFMCP.name){
+      const card = el('div','card');
+      card.appendChild(lead(name, name, '<div class="who">'+esc(name)+
+        ' <span class="badge g">연결됨</span></div><div class="meta">직접 추가함</div>'));
+      const b = el('button','ghost'); b.textContent='해제';
+      b.onclick = ()=> mcpDo('/api/mcp/remove', {name}, log, b);
+      card.appendChild(b); box.appendChild(card);
+    }
+  if(r.note) box.appendChild(el('div','meta', esc(r.note)));
+}
+
 async function mcpDo(path, body, log, btn){
   const stop = spinning(btn);
   log.style.display='block'; log.innerHTML='처리 중...<div class="prog"><i></i></div>';
@@ -1082,7 +1189,25 @@ async function mcpDo(path, body, log, btn){
   log.textContent = (r.output || r.error || '') +
     (r.ok ? '\n\n완료. 처음 쓸 때 브라우저에서 로그인하라고 나올 수 있습니다.' : '\n\n실패했습니다.');
   say(r.ok?'붙였어!':'잘 안 됐어...', r.ok?'happy':'idle');
-  viewConnect();
+  viewMcp();
+}
+
+/* ---------------- 내 설정 ---------------- */
+async function viewMe(){
+  const v = $('#view');
+  const oo = el('div','card'); v.appendChild(oo); skeleton(oo, 1);
+  const st = await api('/api/optout');
+  oo.textContent=''; oo.className='card';
+  if(!st.ok){ oo.appendChild(el('div', null, '<div class="meta">'+esc(st.error)+'</div>')); return; }
+  oo.appendChild(el('div', null, '<div class="who">내 메시지 수집 '+
+    (st.opted_out?'<span class="badge y">제외 중</span>':'<span class="badge g">수집 중</span>')+
+    '</div><div class="meta">'+(st.opted_out?'저장된 것도 조회에서 빠집니다'
+      :'내 메시지가 요약과 아이디어 정리에 사용됩니다')+'</div>'));
+  const b = el('button', st.opted_out?'ghost':'danger');
+  b.textContent = st.opted_out?'수집 재개':'수집 중단';
+  b.onclick = async ()=>{ const r = await post('/api/optout', {out: !st.opted_out});
+    if(r.message) alert(r.message); viewMe(); };
+  oo.appendChild(b);
 }
 
 /* ---------------- 리더보드 ---------------- */
