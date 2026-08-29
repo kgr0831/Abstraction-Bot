@@ -176,21 +176,39 @@ label.f{font-size:12.5px;color:var(--muted-foreground);display:flex;gap:6px;alig
 a.big{display:inline-block;margin-top:9px;padding:7px 14px;background:var(--hebi);
   color:#04241a;border-radius:var(--radius-md);text-decoration:none;font-size:13.5px;font-weight:650}
 .empty{color:var(--muted-foreground);padding:44px 0;text-align:center;font-size:13.5px}
-#thread{border:1px solid var(--border);border-radius:var(--radius);background:var(--card);
-        padding:14px 16px;max-height:56vh;overflow:auto;margin-bottom:10px}
-.turn{display:flex;gap:10px;margin-bottom:14px;align-items:flex-start}
-.turn.me{flex-direction:row-reverse}
-.turn .av{background:var(--secondary)}
-.turn.me .av{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary)}
-.turn .body{max-width:78%;white-space:pre-wrap;word-break:break-word;font-size:13.5px;
-            line-height:1.62;background:var(--muted);border-radius:var(--radius);padding:9px 13px}
-.turn.me .body{background:var(--primary);color:var(--primary-foreground)}
-.asked{display:flex;gap:8px;align-items:flex-end}
-.asked textarea{flex:1;font:inherit;font-size:13.5px;padding:9px 12px;border-radius:var(--radius-md);
-  border:1px solid var(--input);background:var(--background);color:inherit;resize:none;
-  min-height:42px;max-height:160px;line-height:1.5}
-.asked textarea:focus{outline:2px solid color-mix(in srgb,var(--hebi) 45%,transparent);
-  outline-offset:1px;border-color:var(--hebi)}
+#thread{max-height:58vh;overflow:auto;padding:4px 2px 8px;margin-bottom:12px}
+.turn{display:flex;gap:11px;margin-bottom:18px;align-items:flex-start}
+.turn.me{justify-content:flex-end}
+.turn .mark{width:26px;height:26px;flex:0 0 26px;border-radius:9999px;overflow:hidden;
+  background:var(--secondary);border:1px solid var(--border);display:grid;place-items:center;
+  font-size:11px;font-weight:700;color:var(--muted-foreground)}
+.turn .mark svg,.turn .mark img{width:100%;height:100%;object-fit:contain}
+.turn .body{min-width:0;font-size:13.5px;line-height:1.68;white-space:pre-wrap;word-break:break-word}
+.turn.me .body{max-width:76%;background:var(--secondary);color:var(--secondary-foreground);
+  border:1px solid var(--border);border-radius:var(--radius);padding:9px 13px}
+.turn.hebi .body{flex:1;padding-top:2px}
+
+/* 컴포저 — orca 처럼 상자 하나 안에 에디터와 툴바가 같이 들어간다 */
+.composer{border:1px solid var(--input);border-radius:var(--radius);background:var(--card);
+  padding:10px 12px 8px;transition:border-color .12s,box-shadow .12s}
+.composer:focus-within{border-color:var(--hebi);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--hebi) 22%,transparent)}
+.composer textarea{width:100%;border:0;outline:0;background:transparent;color:inherit;
+  font:inherit;font-size:14px;line-height:1.6;resize:none;min-height:26px;max-height:190px;
+  padding:0;display:block}
+.composer textarea::placeholder{color:var(--muted-foreground)}
+.ctoolbar{display:flex;align-items:center;gap:7px;margin-top:9px;flex-wrap:wrap}
+.ctoolbar .grow{flex:1}
+.ctoolbar select,.ctoolbar input[type=date]{font-size:12.5px;padding:4px 8px;
+  border-radius:var(--radius-sm);border:1px solid var(--border);background:transparent;
+  color:var(--muted-foreground)}
+.ctoolbar .hint{font-size:11.5px;color:var(--muted-foreground)}
+.sendbtn{width:32px;height:32px;flex:0 0 32px;padding:0;border-radius:9999px;
+  display:grid;place-items:center;background:var(--primary);color:var(--primary-foreground)}
+.sendbtn svg{width:16px;height:16px}
+.sendbtn:disabled{opacity:.35}
+.quick{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+
 #sum{border:1px solid var(--border);border-radius:var(--radius);background:var(--card);
      padding:16px 18px;margin-top:10px;display:none;white-space:pre-wrap;font-size:13.5px;
      line-height:1.65;max-height:52vh;overflow:auto}
@@ -612,58 +630,83 @@ function saveAsk(){ try { pref('asklog', JSON.stringify(ASKLOG.slice(-40))); } c
 
 async function viewAsk(){
   const v = $('#view');
-  const bar = el('div','card');
-  bar.innerHTML = '<div class="row" style="flex:1">'+
-    '<select id="ach"></select>'+
-    '<label class="f">부터 <input type="date" id="a1"></label>'+
-    '<label class="f">까지 <input type="date" id="a2"></label>'+
-    '<span class="meta" id="anote"></span></div>';
-  const clr = el('button','ghost'); clr.textContent='대화 지우기';
-  clr.onclick = ()=>{ ASKLOG=[]; saveAsk(); draw(); };
-  bar.appendChild(clr); v.appendChild(bar);
-
   const thread = el('div', null); thread.id='thread'; v.appendChild(thread);
+  const quick = el('div','quick'); v.appendChild(quick);
 
-  const box = el('div','asked');
-  const ta = el('textarea');
-  ta.placeholder = '무엇이든 물어보세요 — "오늘 뭐 얘기했어?", "사업 아이디어 뽑아줘", "결론 안 난 거 정리해줘"';
-  const send = el('button', null); send.textContent='보내기';
-  box.append(ta, send); v.appendChild(box);
+  const comp = el('div','composer');
+  const ta = el('textarea'); ta.rows = 1;
+  ta.placeholder = '무엇이든 물어보세요';
+  const tools = el('div','ctoolbar');
+  const sel = el('select'); sel.id='ach';
+  const a1 = el('input'); a1.type='date'; a1.id='a1';
+  const a2 = el('input'); a2.type='date'; a2.id='a2';
+  const note = el('span','hint'); note.id='anote';
+  const grow = el('div','grow');
+  const clr = el('button','ghost'); clr.textContent='지우기';
+  clr.style.padding='4px 10px'; clr.style.fontSize='12px';
+  const send = el('button','sendbtn');
+  send.title = 'Enter 로 보내기';
+  send.innerHTML = ic('<path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>');
+  tools.append(sel, a1, el('span','hint','~'), a2, note, grow, clr, send);
+  comp.append(ta, tools); v.appendChild(comp);
+
+  const grows = ()=>{ ta.style.height='auto'; ta.style.height = ta.scrollHeight + 'px'; };
+  ta.addEventListener('input', grows);
+
+  const QUICK = [
+    ['요약', '이 기간 대화를 주제별로 묶어 정리해줘.'],
+    ['아이디어', '사업화 가능한 아이디어를 뽑아줘. 문제·대상 사용자·왜 지금 셋이 다 있는 것만.'],
+    ['결정/미결', '결정된 것과 아직 결론이 안 난 것을 나눠서 정리해줘.'],
+    ['참여', '누가 얼마나 말했고 주로 무슨 얘기를 했는지 알려줘.'],
+    ['할 일', '이 대화에서 나온 할 일과 담당자를 뽑아줘. 없으면 없다고 해줘.'],
+  ];
+  for(const [label, q] of QUICK){
+    const c = el('span','chip', esc(label));
+    c.onclick = ()=>{ ta.value = q; grows(); go(); };
+    quick.appendChild(c);
+  }
 
   const chans = await api('/api/channels');
-  const sel = $('#ach');
   if(!chans.length){
     thread.innerHTML = '<div class="empty">수집 중인 채널이 없습니다.</div>';
-    ta.disabled = send.disabled = true;
+    ta.disabled = send.disabled = true; quick.textContent = '';
     return;
   }
   for(const c of chans){
-    const o = el('option', null, '#'+esc(c.channel_name)+' · '+c.message_count);
-    o.value = c.channel_id; sel.appendChild(o);
+    const o = el('option', null, '#'+esc(c.channel_name)); o.value = c.channel_id;
+    sel.appendChild(o);
   }
   sel.value = pref('ch') || chans[0].channel_id;
   if(!sel.value) sel.value = chans[0].channel_id;
-  $('#a1').value = pref('d1') || ago(6); $('#a2').value = pref('d2') || '';
-  const remember = ()=>{ pref('ch', sel.value); pref('d1', $('#a1').value); pref('d2', $('#a2').value); };
-  sel.onchange = $('#a1').onchange = $('#a2').onchange = remember;
+  a1.value = pref('d1') || ago(6); a2.value = pref('d2') || '';
+  const remember = ()=>{ pref('ch', sel.value); pref('d1', a1.value); pref('d2', a2.value); };
+  sel.onchange = a1.onchange = a2.onchange = remember;
+  clr.onclick = ()=>{ ASKLOG=[]; saveAsk(); draw(); };
 
-  draw();
-  ta.focus();
+  draw(); ta.focus();
   ta.addEventListener('keydown', e=>{
     if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); go(); }
   });
   send.onclick = go;
 
+  function mark(role){
+    const m = el('div','mark');
+    if(role === 'user') m.textContent = '나';
+    else if((ME.mascot||[]).includes('idle')) m.innerHTML = '<img alt="" src="/mascot/idle">';
+    else m.innerHTML = hebiSVG('idle');
+    return m;
+  }
+
   function draw(){
     thread.textContent='';
     if(!ASKLOG.length){
-      thread.innerHTML = '<div class="empty">고른 채널과 기간의 대화를 자료로 물려주고 답합니다.<br>'+
+      thread.innerHTML = '<div class="empty">고른 채널과 기간의 대화를 자료로 놓고 답합니다.<br>'+
         '자료에 없으면 없다고 말합니다.</div>';
       return;
     }
     for(const m of ASKLOG){
-      const t = el('div','turn'+(m.role==='user'?' me':''));
-      t.appendChild(el('div','av', m.role==='user'?'나':'H'));
+      const t = el('div','turn'+(m.role==='user'?' me':' hebi'));
+      if(m.role !== 'user') t.appendChild(mark('hebi'));
       t.appendChild(el('div','body', esc(m.content)));
       thread.appendChild(t);
     }
@@ -671,8 +714,8 @@ async function viewAsk(){
   }
 
   function pending(text){
-    const t = el('div','turn');
-    t.appendChild(el('div','av','H'));
+    const t = el('div','turn hebi');
+    t.appendChild(mark('hebi'));
     const b = el('div','body');
     b.innerHTML = '<span class="spin"></span> ' + esc(text);
     t.appendChild(b); thread.appendChild(t); thread.scrollTop = thread.scrollHeight;
@@ -681,21 +724,22 @@ async function viewAsk(){
 
   async function go(){
     const q = ta.value.trim();
-    if(!q) return;
+    if(!q || send.disabled) return;
     remember();
     ASKLOG.push({role:'user', content:q}); saveAsk();
-    ta.value=''; draw();
-    const stop = spinning(send); ta.disabled = true;
+    ta.value=''; grows(); draw();
+    send.disabled = ta.disabled = true;
     BUSY++; say('읽는 중...','working');
     const wait = pending('대화를 읽는 중...');
-    const d1 = $('#a1').value || today(), d2 = $('#a2').value || today();
+    const d1 = a1.value || today(), d2 = a2.value || today();
     const r = await post('/api/chat', {channel: sel.value, date: d1, until: d2,
                                        messages: ASKLOG});
+    const done = ()=>{ send.disabled = ta.disabled = false; ta.focus(); BUSY--; };
     if(!r.ok){
       wait.remove(); ASKLOG.push({role:'assistant', content: r.error || '실패했습니다.'});
-      saveAsk(); draw(); stop(); ta.disabled=false; BUSY--; say('그건 못 하겠어...','idle'); return;
+      saveAsk(); draw(); done(); say('그건 못 하겠어...','idle'); return;
     }
-    $('#anote').textContent = r.span + ' · ' + r.count + '건 물림';
+    note.textContent = r.span + ' · ' + r.count + '건';
     wait.querySelector('.body').innerHTML = '<span class="spin"></span> 생각하는 중...';
     clearInterval(POLL);
     POLL = setInterval(async ()=>{
@@ -704,7 +748,7 @@ async function viewAsk(){
       clearInterval(POLL); POLL=null; wait.remove();
       ASKLOG.push({role:'assistant',
                    content: j.ok ? j.text : ((j.lines||['답을 못 받았습니다.']).join(' '))});
-      saveAsk(); draw(); stop(); ta.disabled=false; ta.focus(); BUSY--;
+      saveAsk(); draw(); done();
       say(j.ok?'답했어!':'잘 안 됐어...', j.ok?'happy':'idle');
     }, 900);
   }
