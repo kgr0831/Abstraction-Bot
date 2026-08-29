@@ -438,6 +438,8 @@ async function boot(rerender){
 
 /* 서버 상태가 바뀌면 (연동·계정·채널·새 메시지·봇 기동) 알아서 다시 그린다 */
 async function tick(){
+  // 답변을 기다리는 중이면 다시 그리지 않는다 — 그리면 진행 중인 요청이 날아간다
+  if(BUSY) return;
   const s = await api('/api/state');
   if(s.rev && s.rev !== REV){ REV = s.rev; await boot(); }
 }
@@ -603,7 +605,10 @@ function render(box, msgs, q){
 }
 
 /* ---------------- 묻기 ---------------- */
-let ASKLOG = [];
+// 탭을 옮기거나 새로고침해도 이어지도록 브라우저에 남긴다
+let ASKLOG = (()=>{ try { return JSON.parse(pref('asklog') || '[]'); }
+                    catch(e){ return []; } })();
+function saveAsk(){ try { pref('asklog', JSON.stringify(ASKLOG.slice(-40))); } catch(e){} }
 
 async function viewAsk(){
   const v = $('#view');
@@ -614,7 +619,7 @@ async function viewAsk(){
     '<label class="f">까지 <input type="date" id="a2"></label>'+
     '<span class="meta" id="anote"></span></div>';
   const clr = el('button','ghost'); clr.textContent='대화 지우기';
-  clr.onclick = ()=>{ ASKLOG=[]; draw(); };
+  clr.onclick = ()=>{ ASKLOG=[]; saveAsk(); draw(); };
   bar.appendChild(clr); v.appendChild(bar);
 
   const thread = el('div', null); thread.id='thread'; v.appendChild(thread);
@@ -678,7 +683,7 @@ async function viewAsk(){
     const q = ta.value.trim();
     if(!q) return;
     remember();
-    ASKLOG.push({role:'user', content:q});
+    ASKLOG.push({role:'user', content:q}); saveAsk();
     ta.value=''; draw();
     const stop = spinning(send); ta.disabled = true;
     BUSY++; say('읽는 중...','working');
@@ -688,7 +693,7 @@ async function viewAsk(){
                                        messages: ASKLOG});
     if(!r.ok){
       wait.remove(); ASKLOG.push({role:'assistant', content: r.error || '실패했습니다.'});
-      draw(); stop(); ta.disabled=false; BUSY--; say('그건 못 하겠어...','idle'); return;
+      saveAsk(); draw(); stop(); ta.disabled=false; BUSY--; say('그건 못 하겠어...','idle'); return;
     }
     $('#anote').textContent = r.span + ' · ' + r.count + '건 물림';
     wait.querySelector('.body').innerHTML = '<span class="spin"></span> 생각하는 중...';
@@ -699,7 +704,7 @@ async function viewAsk(){
       clearInterval(POLL); POLL=null; wait.remove();
       ASKLOG.push({role:'assistant',
                    content: j.ok ? j.text : ((j.lines||['답을 못 받았습니다.']).join(' '))});
-      draw(); stop(); ta.disabled=false; ta.focus(); BUSY--;
+      saveAsk(); draw(); stop(); ta.disabled=false; ta.focus(); BUSY--;
       say(j.ok?'답했어!':'잘 안 됐어...', j.ok?'happy':'idle');
     }, 900);
   }
